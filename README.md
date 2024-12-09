@@ -33,5 +33,5 @@ python face_swap_ecomid.py
 ## References
 https://github.com/alimama-creative/SDXL_EcomID_ComfyUI \
 https://github.com/ToTheBeginning/PuLID \
-https://github.com/instantX-research/InstantID
+https://github.com/instantX-research/InstantID \
 https://github.com/huggingface/diffusers
