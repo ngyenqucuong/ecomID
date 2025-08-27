@@ -29,3 +29,5 @@ if not os.path.exists("./checkpoints/"):
         filename="ip-adapter.bin",
         local_dir="./checkpoints"
     )
+
+print('please run: mv models/antelopev2/antelopev2/* models/antelopev2/')
