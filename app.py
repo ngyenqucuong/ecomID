@@ -25,7 +25,6 @@ import json
 from pydantic import BaseModel
 from typing import Optional
 import facer
-from diffusers import StableDiffusionXLImg2ImgPipeline
 
 
 from huggingface_hub import hf_hub_download
@@ -40,13 +39,12 @@ bg_remove_pipe = None
 pipeline_swap = None
 face_parser = None
 executor = ThreadPoolExecutor(max_workers=1)
-refiner = None
 
 
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app,bg_remove_pipe,face_parser,refiner
+    global pipeline_swap, insightface_app,bg_remove_pipe,face_parser
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
@@ -70,10 +68,6 @@ def initialize_pipelines():
         attention.ORTHO_v2 = True
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
-        refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-            "stabilityai/stable-diffusion-xl-refiner-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True
-        )
-        refiner.to(device)
 
 
 
@@ -246,7 +240,6 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_image,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
-    # image = refiner(request.prompt,image=image).images[0]
     filename = f"{job_id}_base.png"
     filepath = os.path.join(results_dir, filename)
     image.save(filepath)
