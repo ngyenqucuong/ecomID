@@ -27,7 +27,7 @@ else:
 class EcomIDPipeline:
     def __init__(self, args, insightface_app):
         super().__init__()
-        self.device = args.device
+        self.device = args['device']
 
         # Path to InstantID models
         # face_adapter_path = f'../checkpoints/ip-adapter.bin'
@@ -35,9 +35,9 @@ class EcomIDPipeline:
         # base_model_path = f'../checkpoints/realisticStockPhoto_v20.safetensors' 
         #base_model_path = f'../checkpoints/sd_xl_base_1.0.safetensors'
 
-        face_adapter_path = args.face_adapter_path
-        controlnet_path = args.controlnet_path
-        base_model_path = args.base_model_path
+        face_adapter_path = args['face_adapter_path']
+        controlnet_path = args['controlnet_path']
+        base_model_path = args['base_model_path']
 
         controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
         self.pipe = StableDiffusionXLInpaintPulidPipeline.from_single_file(
