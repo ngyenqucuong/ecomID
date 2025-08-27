@@ -74,7 +74,6 @@ def initialize_pipelines():
             "stabilityai/stable-diffusion-xl-refiner-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True
         )
         refiner.to(device)
-        refiner.unet = torch.compile(refiner.unet, mode="reduce-overhead", fullgraph=True)
 
 
 
