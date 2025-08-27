@@ -246,7 +246,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_image,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
-    image = refiner(request.prompt,image=image).images[0]
+    # image = refiner(request.prompt,image=image).images[0]
     filename = f"{job_id}_base.png"
     filepath = os.path.join(results_dir, filename)
     image.save(filepath)
