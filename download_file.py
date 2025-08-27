@@ -6,26 +6,31 @@ if not os.path.exists("./models/antelopev2/"):
     hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="models/antelopev2/1k3d68.onnx",
+    local_dir="./",
     repo_type="space"
     )   
     hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="models/antelopev2/2d106det.onnx",
+    local_dir="./",
     repo_type="space"
     )
     hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="models/antelopev2/genderage.onnx",
+    local_dir="./",
     repo_type="space"
     )
     hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="models/antelopev2/glintr100.onnx",
+    local_dir="./",
     repo_type="space"
     )
     hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="models/antelopev2/scrfd_10g_bnkps.onnx",
+    local_dir="./",
     repo_type="space"
     )
     # run 'mv models/antelopev2/antelopev2/* models/antelopev2/' cmd
