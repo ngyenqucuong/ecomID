@@ -40,7 +40,7 @@ class EcomIDPipeline:
         base_model_path = args['base_model_path']
 
         controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
-        self.pipe = StableDiffusionXLInpaintPulidPipeline.from_single_file(
+        self.pipe = StableDiffusionXLInpaintPulidPipeline.from_pretrained(
             base_model_path, controlnet=controlnet, torch_dtype=torch.float16, variant="fp16"
         ).to(self.device)
 
