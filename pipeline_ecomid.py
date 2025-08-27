@@ -48,12 +48,12 @@ class EcomIDPipeline:
         self.hack_unet_attn_layers(self.pipe.unet)
         self.pipe.watermark = None
         # my test
-        self.pipe.scheduler = DEISMultistepScheduler.from_config(self.pipe.scheduler.config)
+        # self.pipe.scheduler = DEISMultistepScheduler.from_config(self.pipe.scheduler.config)
 
         # scheduler
-        # self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-        #     self.pipe.scheduler.config, timestep_spacing="trailing"
-        # )
+        self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+            self.pipe.scheduler.config, timestep_spacing="trailing"
+        )
         self.pipe.load_ip_adapter_instantid(face_adapter_path)
         # ID adapters
         #self.id_adapter = IDEncoder().to(self.device)
@@ -84,7 +84,6 @@ class EcomIDPipeline:
         self.eva_transform_mean = eva_transform_mean
         self.eva_transform_std = eva_transform_std
         # antelopev2
-        snapshot_download('DIAMONIK7777/antelopev2', local_dir='models/antelopev2')
         self.app = insightface_app
         self.handler_ante = insightface.model_zoo.get_model('models/antelopev2/glintr100.onnx')
         self.handler_ante.prepare(ctx_id=0)

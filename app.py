@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from typing import Optional
 import facer
 
+from huggingface_hub import hf_hub_download
 
 
 device = 'cuda'
@@ -50,10 +51,14 @@ def initialize_pipelines():
                                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
         insightface_app.prepare(ctx_id=0, det_size=(640, 640))
         bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True, device='cuda')
+        file_path = hf_hub_download(
+            repo_id="lllyasviel/fav_models",
+            filename="fav/realisticStockPhoto_v20.safetensors"
+        )
         args = {
             'face_adapter_path': 'checkpoints/ip-adapter.bin',
             'controlnet_path': 'checkpoints/ControlNetModel',
-            'base_model_path': 'Lykon/dreamshaper-8-inpainting',
+            'base_model_path': file_path,
             'device': 'cuda:0'
         }
         pipeline_swap = EcomIDPipeline(args, insightface_app)
