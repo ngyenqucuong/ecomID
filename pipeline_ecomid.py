@@ -3,7 +3,7 @@ import cv2
 import insightface
 import torch
 import torch.nn as nn
-from diffusers import DPMSolverMultistepScheduler, UNet2DConditionModel
+from diffusers import DPMSolverMultistepScheduler, UNet2DConditionModel,DEISMultistepScheduler
 from pipeline_stable_diffusion_xl_inpaint_ecomid import StableDiffusionXLInpaintPulidPipeline
 from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
@@ -47,11 +47,13 @@ class EcomIDPipeline:
 
         self.hack_unet_attn_layers(self.pipe.unet)
         self.pipe.watermark = None
+        # my test
+        self.pipe.scheduler = DEISMultistepScheduler.from_config(self.pipe.scheduler.config)
 
         # scheduler
-        self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-            self.pipe.scheduler.config, timestep_spacing="trailing"
-        )
+        # self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+        #     self.pipe.scheduler.config, timestep_spacing="trailing"
+        # )
         self.pipe.load_ip_adapter_instantid(face_adapter_path)
         # ID adapters
         #self.id_adapter = IDEncoder().to(self.device)
