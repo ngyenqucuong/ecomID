@@ -378,16 +378,16 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    # result_image = PIL.Image.new("RGB", top_layer_image.size)
-    # x, y, w, h = bbox
-    # result_image.paste(image, (x, y))
-    # result_image.paste(top_layer_image, (0, 0))
+    result_image = PIL.Image.new("RGB", top_layer_image.size)
+    x, y, w, h = bbox
+    result_image.paste(image, (x, y))
+    result_image.paste(top_layer_image, (0, 0))
     # paste the generated image on the bottom the top_layer_image in the top follow bbox
     
 
     filepath = os.path.join(results_dir, filename)
    
-    image.save(filepath)
+    result_image.save(filepath)
         
     metadata = {
         "job_id": job_id,
