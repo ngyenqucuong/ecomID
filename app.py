@@ -25,6 +25,8 @@ from pydantic import BaseModel
 from typing import Optional
 import facer
 from transformers import pipeline
+import mediapipe as mp
+
 
 
 
@@ -39,14 +41,228 @@ insightface_app = None
 pipeline_swap = None
 face_parser = None
 bg_remove_pipe = None
-
+segmenter = None
 executor = ThreadPoolExecutor(max_workers=1)
+
+class HairFaceSegmentation:
+    def __init__(self):
+        # Khởi tạo MediaPipe Selfie Segmentation
+        self.mp_selfie_segmentation = mp.solutions.selfie_segmentation
+        self.selfie_segmentation = self.mp_selfie_segmentation.SelfieSegmentation(model_selection=1)
+        
+        # Khởi tạo MediaPipe Face Mesh để detect face landmarks
+        self.mp_face_mesh = mp.solutions.face_mesh
+        self.face_mesh = self.mp_face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5
+        )
+
+    def get_face_mask(self, image):
+        """Tạo mask cho khuôn mặt dựa trên face landmarks"""
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = self.face_mesh.process(image_rgb)
+        
+        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                # Lấy tọa độ các điểm trên khuôn mặt
+                h, w = image.shape[:2]
+                points = []
+                
+                # Outline của khuôn mặt (face oval)
+                face_oval_indices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+                                   397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+                                   172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109]
+                
+                for idx in face_oval_indices:
+                    landmark = face_landmarks.landmark[idx]
+                    x = int(landmark.x * w)
+                    y = int(landmark.y * h)
+                    points.append([x, y])
+                
+                # Tạo mask từ các điểm
+                points = np.array(points, dtype=np.int32)
+                cv2.fillPoly(mask, [points], 255)
+        
+        return mask
+
+    def get_hair_mask(self, image, person_mask):
+        """Tạo mask cho tóc bằng cách trừ face mask khỏi person mask"""
+        face_mask = self.get_face_mask(image)
+        
+        # Dilate face mask một chút để loại bỏ phần cổ
+        kernel = np.ones((20, 20), np.uint8)
+        face_mask_dilated = cv2.dilate(face_mask, kernel, iterations=1)
+        
+        # Tóc = toàn bộ người - mặt (đã dilate)
+        hair_mask = person_mask.copy()
+        hair_mask[face_mask_dilated > 0] = 0
+        
+        # Chỉ giữ phần trên của mask (tóc thường ở phía trên)
+        h = hair_mask.shape[0]
+        hair_mask[int(h*0.7):] = 0  # Bỏ phần dưới 70% chiều cao
+        
+        return hair_mask
+
+    def get_combined_mask(self, image_input):
+        """Lấy mask kết hợp của tóc và mặt"""
+        # Xử lý input (có thể là path hoặc PIL.Image)
+        if isinstance(image_input, str):
+            # Nếu là path
+            image = cv2.imread(image_input)
+            if image is None:
+                raise ValueError("Không thể đọc ảnh")
+        else:
+            # Nếu là PIL.Image
+            image_rgb_pil = image_input.convert('RGB')
+            image = cv2.cvtColor(np.array(image_rgb_pil), cv2.COLOR_RGB2BGR)
+        
+        # Chuyển sang RGB cho MediaPipe
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Lấy mask toàn bộ người
+        results = self.selfie_segmentation.process(image_rgb)
+        person_mask = (results.segmentation_mask > 0.5).astype(np.uint8) * 255
+        
+        # Lấy mask mặt và tóc
+        face_mask = self.get_face_mask(image)
+        hair_mask = self.get_hair_mask(image, person_mask)
+        
+        # Kết hợp mask tóc và mặt
+        combined_mask = cv2.bitwise_or(face_mask, hair_mask)
+        
+        return image, combined_mask, face_mask, hair_mask
+
+    def extract_hair_face_region(self, image_input, output_path=None, padding=20):
+        """Cắt vùng tóc và mặt ra khỏi ảnh"""
+        image, combined_mask, face_mask, hair_mask = self.get_combined_mask(image_input)
+        
+        # Tìm bounding box của mask
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            raise ValueError("Không tìm thấy vùng tóc/mặt")
+        
+        # Lấy bounding box lớn nhất
+        largest_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(largest_contour)
+        
+        # Thêm padding
+        x = max(0, x - padding)
+        y = max(0, y - padding)
+        w = min(image.shape[1] - x, w + 2*padding)
+        h = min(image.shape[0] - y, h + 2*padding)
+        
+        # Cắt ảnh và mask
+        cropped_image = image[y:y+h, x:x+w]
+        cropped_mask = combined_mask[y:y+h, x:x+w]
+        
+        # Tạo ảnh trong suốt với alpha channel
+        result = np.zeros((h, w, 4), dtype=np.uint8)
+        result[:, :, :3] = cropped_image
+        result[:, :, 3] = cropped_mask  # Alpha channel
+        
+        if output_path:
+            # Lưu ảnh với alpha channel
+            result_pil = PIL.Image.fromarray(result, 'RGBA')
+            result_pil.save(output_path)
+        
+        return result, (x, y, w, h)  # Trả về ảnh và vị trí để gắn lại sau
+
+    def blend_generated_image(self, original_image_input, generated_pil_image, 
+                            bbox, output_path=None, blend_edges=True):
+        """Gắn ảnh đã generate lại vào ảnh gốc"""
+        # Xử lý ảnh gốc
+        if isinstance(original_image_input, str):
+            original = cv2.imread(original_image_input)
+        else:
+            # PIL.Image
+            original_rgb_pil = original_image_input.convert('RGB')
+            original = cv2.cvtColor(np.array(original_rgb_pil), cv2.COLOR_RGB2BGR)
+        
+        # Chuyển PIL Image sang numpy array
+        if generated_pil_image.mode == 'RGBA':
+            generated_array = np.array(generated_pil_image)
+            generated_rgb = generated_array[:, :, :3]
+            alpha = generated_array[:, :, 3] / 255.0
+        else:
+            generated_array = np.array(generated_pil_image.convert('RGB'))
+            generated_rgb = generated_array
+            alpha = np.ones(generated_array.shape[:2])
+        
+        # Chuyển từ RGB sang BGR cho OpenCV
+        generated_rgb = cv2.cvtColor(generated_rgb, cv2.COLOR_RGB2BGR)
+        
+        x, y, w, h = bbox
+        
+        # Resize generated image nếu cần
+        if generated_rgb.shape[:2] != (h, w):
+            generated_rgb = cv2.resize(generated_rgb, (w, h))
+            alpha = cv2.resize(alpha, (w, h))
+        
+        # Tạo soft edges nếu được yêu cầu
+        if blend_edges:
+            kernel = np.ones((5, 5), np.float32) / 25
+            alpha = cv2.filter2D(alpha, -1, kernel)
+        
+        # Blend ảnh
+        result = original.copy()
+        for c in range(3):
+            result[y:y+h, x:x+w, c] = (
+                alpha * generated_rgb[:, :, c] + 
+                (1 - alpha) * original[y:y+h, x:x+w, c]
+            )
+        
+        # Lưu kết quả nếu có output_path
+        if output_path:
+            cv2.imwrite(output_path, result)
+        
+        # Trả về PIL.Image
+        result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+        return PIL.Image.fromarray(result_rgb)
+
+
+def process_image_pipeline(input_image_path, diffusion_function):
+    """
+    Pipeline hoàn chỉnh với diffusion function
+    diffusion_function: hàm nhận PIL.Image và trả về PIL.Image
+    """
+    
+    
+    # Bước 1: Cắt vùng tóc/mặt
+    print("Đang cắt vùng tóc và mặt...")
+    hair_face_region, bbox = segmenter.extract_hair_face_region(
+        input_image_path, 
+        "hair_face_extracted.png"
+    )
+    
+    # Chuyển sang PIL Image để đưa vào diffusion
+    hair_face_pil = PIL.Image.fromarray(hair_face_region, 'RGBA')
+    print(f"Đã cắt vùng tóc/mặt, bounding box: {bbox}")
+    
+    # Bước 2: Chạy diffusion
+    print("Đang chạy diffusion...")
+    generated_pil_image = diffusion_function(hair_face_pil)
+    
+    # Bước 3: Gắn ảnh đã generate lại vào ảnh gốc
+    print("Đang gắn ảnh đã generate lại...")
+    final_result = segmenter.blend_generated_image(
+        input_image_path,
+        generated_pil_image,  # PIL.Image thay vì path
+        bbox,
+        "final_result.png"
+    )
+    print("Hoàn thành! Kết quả được lưu vào final_result.png")
+    
+    return "final_result.png"
 
 
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,segmenter
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
@@ -70,6 +286,7 @@ def initialize_pipelines():
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
         bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True, device='cuda')
+        segmenter = HairFaceSegmentation()
 
 
 
@@ -149,65 +366,27 @@ def pred_face_mask(img, face_info):
     face_mask = face_mask.cpu().numpy()
 
     return face_mask
-def create_background_preserving_mask(pose_image, face_info, bg_remove_pipe,width,height, expand_subject=False):
-    """Create mask that allows inpainting only the subject while preserving background"""
-    
-    # Get subject mask from background removal
-    bg_result = bg_remove_pipe(pose_image)
-    subject_mask = np.array(bg_result.convert('L'))
-    
-    # Get face mask from face parsing
-    face_mask = pred_face_mask(pose_image, face_info)
-    
-    if expand_subject:
-        # Option 1: Replace entire subject
-        final_mask = np.zeros([height, width, 3])
-        final_mask[subject_mask > 127] = 255
-    else:
-        # Option 2: Only face area within subject boundaries
-        final_mask = np.zeros([height, width, 3])
-        combined_area = np.logical_and(face_mask > 0, subject_mask > 127)
-        final_mask[combined_area] = 255
-    
-    # Smooth the mask edges
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
-    final_mask = cv2.morphologyEx(final_mask, cv2.MORPH_CLOSE, kernel)
-    final_mask = cv2.GaussianBlur(final_mask, (5, 5), 0)
-    
-    return final_mask
+
+
 
 def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
     kps = face_info['kps']
+    bg_result = bg_remove_pipe(pose_image)
+    bg_mask = np.array(bg_result[0]['mask'])
     
-    # Create background-preserving mask
-    face_mask = create_background_preserving_mask(
-        pose_image, face_info, bg_remove_pipe, width, height, expand_subject=False
-    )
-    
+    mask = np.zeros([height, width, 3])
+    face_mask = pred_face_mask(pose_image, face_info)
+    # Combine face mask with background removal mask
+    combined_mask = np.logical_and(face_mask > 0, bg_mask > 0)
+    mask[combined_mask] = 255
+    face_mask = mask
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
+    face_mask = cv2.dilate(face_mask, kernel, iterations=2)
     face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
     control_image = draw_kps(pose_image, kps)
 
     return face_mask, control_image
-
-# def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
-#     kps = face_info['kps']
-#     bg_result = bg_remove_pipe(pose_image)
-#     bg_mask = np.array(bg_result[0]['mask'])
-    
-#     mask = np.zeros([height, width, 3])
-#     face_mask = pred_face_mask(pose_image, face_info)
-#     # Combine face mask with background removal mask
-#     combined_mask = np.logical_and(face_mask > 0, bg_mask > 0)
-#     mask[combined_mask] = 255
-#     face_mask = mask
-
-#     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
-#     face_mask = cv2.dilate(face_mask, kernel, iterations=2)
-#     face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
-#     control_image = draw_kps(pose_image, kps)
-
-#     # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
-#     return face_mask, control_image
 
 
 def pred_face_info(img):
@@ -265,12 +444,14 @@ os.makedirs(results_dir, exist_ok=True)
 
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):
-    random_seed = 0
-    generator = torch.Generator(device="cuda")
-    generator.manual_seed(random_seed)
-    random.seed(random_seed)
-    np.random.seed(random_seed)
-    torch.manual_seed(random_seed)
+    print("Đang cắt vùng tóc và mặt...")
+    hair_face_region, bbox = segmenter.extract_hair_face_region(
+        pose_image, 
+        "hair_face_extracted.png"
+    )
+    
+    # Chuyển sang PIL Image để đưa vào diffusion
+    hair_face_pil = PIL.Image.fromarray(hair_face_region, 'RGBA')
     width, height = pose_image.size
     pose_info = insightface_app.get(cv2.cvtColor(np.array(pose_image), cv2.COLOR_RGB2BGR))
     pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
@@ -286,13 +467,20 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_image,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
+    
     filepath = os.path.join(results_dir, filename)
-    image.save(filepath)
+    final_result = segmenter.blend_generated_image(
+        pose_image,
+        image,  # PIL.Image thay vì path
+        bbox,
+        filepath
+    )
+    # image.save(filepath)
         
     metadata = {
         "job_id": job_id,
         "type": "head_swap",
-        "seed": random_seed,
+        "seed": 0,
         "prompt": request.prompt,
         "parameters": request.dict(),
         "filename": filename,
