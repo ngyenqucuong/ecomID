@@ -137,7 +137,7 @@ class HairFaceSegmentation:
         
         return image, combined_mask
 
-    def extract_hair_face_region(self, image_input, padding=20):
+    def extract_hair_face_region(self, image_input, padding=5):
         """Cắt vùng tóc và mặt ra khỏi ảnh"""
         image, combined_mask = self.get_combined_mask(image_input)
         
@@ -165,60 +165,6 @@ class HairFaceSegmentation:
         
         return result_pil, (x, y, w, h)  # Trả về ảnh và vị trí để gắn lại sau
 
-    def blend_generated_image(self, original_image_input, generated_pil_image, 
-                            bbox, output_path=None, blend_edges=True):
-        """Gắn ảnh đã generate lại vào ảnh gốc
-        
-        Args:
-            original_mask: mask để blend chỉ phần hair/face, None = blend toàn bộ
-        """
-        
-        original = cv2.cvtColor(np.array(original_image_input), cv2.COLOR_RGB2BGR)
-        
-        # Chuyển PIL Image sang numpy array
-        if generated_pil_image.mode == 'RGBA':
-            generated_array = np.array(generated_pil_image)
-            generated_rgb = generated_array[:, :, :3]
-            alpha = generated_array[:, :, 3] / 255.0
-        else:
-            generated_array = np.array(generated_pil_image.convert('RGB'))
-            generated_rgb = generated_array
-            alpha = np.ones(generated_array.shape[:2])
-        
-        # Chuyển từ RGB sang BGR cho OpenCV
-        generated_rgb = cv2.cvtColor(generated_rgb, cv2.COLOR_RGB2BGR)
-        
-        x, y, w, h = bbox
-        
-        # Resize generated image nếu cần
-        if generated_rgb.shape[:2] != (h, w):
-            generated_rgb = cv2.resize(generated_rgb, (w, h))
-            alpha = cv2.resize(alpha, (w, h))
-        
-        # # Nếu có original_mask, chỉ blend phần có mask
-        # if original_mask is not None:
-        #     if original_mask.shape[:2] != (h, w):
-        #         original_mask = cv2.resize(original_mask, (w, h))
-        #     # Chỉ blend phần có trong mask
-        #     mask_alpha = (original_mask > 0).astype(float)
-        #     alpha = alpha * mask_alpha
-        
-        # Tạo soft edges nếu được yêu cầu
-        if blend_edges:
-            kernel = np.ones((5, 5), np.float32) / 25
-            alpha = cv2.filter2D(alpha, -1, kernel)
-        
-        # Blend ảnh
-        result = original.copy()
-        for c in range(3):
-            result[y:y+h, x:x+w, c] = (
-                alpha * generated_rgb[:, :, c] + 
-                (1 - alpha) * original[y:y+h, x:x+w, c]
-            )
-        
-        # Lưu kết quả nếu có output_path
-        if output_path:
-            cv2.imwrite(output_path, result)
 
 
 
@@ -408,7 +354,7 @@ os.makedirs(results_dir, exist_ok=True)
 
 
 
-async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):
+async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,top_layer_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
     hair_face_pil, bbox = segmenter.extract_hair_face_region(
         pose_image, 
@@ -431,15 +377,17 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, hair_face_pil, mask_image,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
+    # create new PIL Image has size = top_layer_image
+    result_image = PIL.Image.new("RGB", top_layer_image.size)
+    x, y, w, h = bbox
+    result_image.paste(image, (x, y))
+    result_image.paste(top_layer_image, (0, 0))
+    # paste the generated image on the bottom the top_layer_image in the top follow bbox
     
+
     filepath = os.path.join(results_dir, filename)
-    segmenter.blend_generated_image(
-        pose_image,
-        image,  # PIL.Image thay vì path
-        bbox,
-        filepath
-    )
-    # image.save(filepath)
+   
+    result_image.save(filepath)
         
     metadata = {
         "job_id": job_id,
@@ -521,6 +469,7 @@ async def health_check():
 async def img2img(
     base_image: UploadFile = File(...),
     pose_image: UploadFile = File(...),
+    top_layer_image: UploadFile = File(...),
     prompt: str = Form(""),
     negative_prompt: str = Form("flaws in the eyes, flaws in the face, flaws, lowres, non-HDRi, low quality, worst quality"),
     strength: float = Form(0.9),
@@ -544,6 +493,8 @@ async def img2img(
         # Load images
         base_img = PIL.Image.open(io.BytesIO(await base_image.read())).convert('RGB')
         pose_img = PIL.Image.open(io.BytesIO(await pose_image.read())).convert('RGB')
+        top_layer_img = PIL.Image.open(io.BytesIO(await top_layer_image.read())).convert('RGB')
+
         request = Img2ImgRequest(
             num_inference_steps=num_inference_steps,
             prompt=prompt,
@@ -557,7 +508,7 @@ async def img2img(
         # Start background task
         loop = asyncio.get_event_loop()
         loop.run_in_executor(executor, lambda: asyncio.run(
-            gen_img2img(job_id, base_img, pose_img, request)
+            gen_img2img(job_id, base_img, pose_img, top_layer_img, request)
         ))
         
         return {"job_id": job_id, "status": "pending"}

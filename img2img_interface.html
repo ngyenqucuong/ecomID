@@ -104,6 +104,18 @@
                             </div>
                         </div>
                     </div>
+                    <div>
+                        <label class="block text-white font-medium mb-2">Top Layer Image</label>
+                        <div class="upload-area p-6 text-center cursor-pointer" onclick="document.getElementById('topLayerImage').click()">
+                            <input type="file" id="topLayerImage" accept="image/png" class="hidden">
+                            <div id="topLayerImagePreview" class="hidden">
+                                <img id="topLayerImageImg" class="max-w-full h-32 object-cover rounded-lg mx-auto">
+                            </div>
+                            <div id="topLayerImagePlaceholder">
+                                <p class="text-white">📷 Click to upload top layer image (png)</p>
+                            </div>
+                        </div>
+                    </div>
                     
                 </div>
 
@@ -217,6 +229,10 @@
         const posePreview = document.getElementById('poseImagePreview');
         const posePlaceholder = document.getElementById('poseImagePlaceholder');
         const poseImg = document.getElementById('poseImageImg');
+        const topLayerInput = document.getElementById('topLayerImage');
+        const topLayerPreview = document.getElementById('topLayerImagePreview');
+        const topLayerPlaceholder = document.getElementById('topLayerImagePlaceholder');
+        const topLayerImg = document.getElementById('topLayerImageImg');
         
 
         baseInput.addEventListener('change', (e) => {
@@ -243,12 +259,25 @@
                 reader.readAsDataURL(file);
             }
         });
+        topLayerInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    topLayerImg.src = e.target.result;
+                    topLayerPreview.classList.remove('hidden');
+                    topLayerPlaceholder.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
        
         
         // Generate button event listener
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const baseImageFile = document.getElementById('baseImage').files[0];
             const poseImageFile = document.getElementById('poseImage').files[0];
+            const topLayerImageFile = document.getElementById('topLayerImage').files[0];
             const prompt = document.getElementById('Prompt').value;
             
             if (!baseImageFile) {
@@ -269,6 +298,7 @@
             const formData = new FormData();
             formData.append('base_image', baseImageFile);
             formData.append('pose_image', poseImageFile);
+            formData.append('top_layer_image', topLayerImageFile);
             formData.append('prompt', prompt);
             formData.append('ip_adapter_scale', document.getElementById('adapterScale').value);
             formData.append('strength', document.getElementById('Strength').value);
