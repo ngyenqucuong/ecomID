@@ -159,13 +159,7 @@
                         <span id="numStepValue" class="text-white text-sm">30</span>
                     </div>
                 </div>
-                <!-- Additional Parameters -->
-                <div class="mt-4">
-                    <label class="block text-white font-medium mb-2">Detail Face</label>
-                    <input type="checkbox" id="detailFace" class="mr-2 leading-tight">
-                    <label for="detailFace" class="text-white">Refine face details</label>
-                </div>
-
+                
                 <!-- Seed -->
                 <div class="mt-4">
                     <label class="block text-white font-medium mb-2">Seed (0 for random)</label>
@@ -304,7 +298,6 @@
             formData.append('strength', document.getElementById('Strength').value);
             formData.append('num_inference_steps', document.getElementById('numStep').value);
             formData.append('guidance_scale', document.getElementById('guidanceScale').value);
-            formData.append('detail_face', document.getElementById('detailFace').checked);
             formData.append('seed', document.getElementById('generateSeed').value);
 
 
