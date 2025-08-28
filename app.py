@@ -154,7 +154,7 @@ def create_background_preserving_mask(pose_image, face_info, bg_remove_pipe,widt
     
     # Get subject mask from background removal
     bg_result = bg_remove_pipe(pose_image)
-    subject_mask = np.array(bg_result[0]['mask'])
+    subject_mask = np.array(bg_result.convert('L'))
     
     # Get face mask from face parsing
     face_mask = pred_face_mask(pose_image, face_info)
