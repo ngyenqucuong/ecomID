@@ -89,6 +89,7 @@ class HairFaceSegmentation:
         
         return mask
 
+
     def get_hair_mask(self, image, person_mask):
         """Tạo mask cho tóc bằng cách trừ face mask khỏi person mask"""
         face_mask = self.get_face_mask(image)
@@ -134,11 +135,11 @@ class HairFaceSegmentation:
         # Kết hợp mask tóc và mặt
         combined_mask = cv2.bitwise_or(face_mask, hair_mask)
         
-        return image, combined_mask, face_mask, hair_mask
+        return image, combined_mask
 
-    def extract_hair_face_region(self, image_input, output_path=None, padding=0):
+    def extract_hair_face_region(self, image_input, padding=20):
         """Cắt vùng tóc và mặt ra khỏi ảnh"""
-        image, combined_mask, face_mask, hair_mask = self.get_combined_mask(image_input)
+        image, combined_mask = self.get_combined_mask(image_input)
         
         # Tìm bounding box của mask
         contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -157,30 +158,22 @@ class HairFaceSegmentation:
         
         # Cắt ảnh và mask
         cropped_image = image[y:y+h, x:x+w]
-        cropped_mask = combined_mask[y:y+h, x:x+w]
         
-        # Tạo ảnh trong suốt với alpha channel
-        result = np.zeros((h, w, 4), dtype=np.uint8)
-        result[:, :, :3] = cropped_image
-        result[:, :, 3] = cropped_mask  # Alpha channel
+        # Giữ nguyên background, chỉ crop theo bounding box - trả về RGB
+        result = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
+        result_pil = PIL.Image.fromarray(result, 'RGB')
         
-        if output_path:
-            # Lưu ảnh với alpha channel
-            result_pil = PIL.Image.fromarray(result, 'RGBA')
-            result_pil.save(output_path)
-        
-        return result, (x, y, w, h)  # Trả về ảnh và vị trí để gắn lại sau
+        return result_pil, (x, y, w, h)  # Trả về ảnh và vị trí để gắn lại sau
 
     def blend_generated_image(self, original_image_input, generated_pil_image, 
-                            bbox, output_path=None, blend_edges=True):
-        """Gắn ảnh đã generate lại vào ảnh gốc"""
-        # Xử lý ảnh gốc
-        if isinstance(original_image_input, str):
-            original = cv2.imread(original_image_input)
-        else:
-            # PIL.Image
-            original_rgb_pil = original_image_input.convert('RGB')
-            original = cv2.cvtColor(np.array(original_rgb_pil), cv2.COLOR_RGB2BGR)
+                            bbox, original_mask=None, output_path=None, blend_edges=True):
+        """Gắn ảnh đã generate lại vào ảnh gốc
+        
+        Args:
+            original_mask: mask để blend chỉ phần hair/face, None = blend toàn bộ
+        """
+        
+        original = cv2.cvtColor(np.array(original_image_input), cv2.COLOR_RGB2BGR)
         
         # Chuyển PIL Image sang numpy array
         if generated_pil_image.mode == 'RGBA':
@@ -202,6 +195,14 @@ class HairFaceSegmentation:
             generated_rgb = cv2.resize(generated_rgb, (w, h))
             alpha = cv2.resize(alpha, (w, h))
         
+        # # Nếu có original_mask, chỉ blend phần có mask
+        # if original_mask is not None:
+        #     if original_mask.shape[:2] != (h, w):
+        #         original_mask = cv2.resize(original_mask, (w, h))
+        #     # Chỉ blend phần có trong mask
+        #     mask_alpha = (original_mask > 0).astype(float)
+        #     alpha = alpha * mask_alpha
+        
         # Tạo soft edges nếu được yêu cầu
         if blend_edges:
             kernel = np.ones((5, 5), np.float32) / 25
@@ -218,10 +219,8 @@ class HairFaceSegmentation:
         # Lưu kết quả nếu có output_path
         if output_path:
             cv2.imwrite(output_path, result)
-        
-        # Trả về PIL.Image
-        result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-        return PIL.Image.fromarray(result_rgb)
+
+
 
 
 
@@ -411,13 +410,12 @@ os.makedirs(results_dir, exist_ok=True)
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
-    hair_face_region, bbox = segmenter.extract_hair_face_region(
+    hair_face_pil, bbox = segmenter.extract_hair_face_region(
         pose_image, 
-        "hair_face_extracted.png"
     )
     
     # Chuyển sang PIL Image để đưa vào diffusion
-    hair_face_pil = PIL.Image.fromarray(hair_face_region, 'RGBA').convert('RGB')
+
     width, height = hair_face_pil.size
     pose_info = insightface_app.get(cv2.cvtColor(np.array(hair_face_pil), cv2.COLOR_RGB2BGR))
     pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
