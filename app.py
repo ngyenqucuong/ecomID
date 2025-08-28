@@ -418,11 +418,11 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     
     # Chuyển sang PIL Image để đưa vào diffusion
     hair_face_pil = PIL.Image.fromarray(hair_face_region, 'RGBA')
-    width, height = pose_image.size
-    pose_info = insightface_app.get(cv2.cvtColor(np.array(pose_image), cv2.COLOR_RGB2BGR))
+    width, height = hair_face_pil.size
+    pose_info = insightface_app.get(cv2.cvtColor(np.array(hair_face_pil), cv2.COLOR_RGB2BGR))
     pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
     mask_image, control_image = prepareMaskAndPoseAndControlImage(
-        pose_image,
+        hair_face_pil,
         pose_info,
         width,
         height
@@ -430,7 +430,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     face_info = pred_face_info(face_image)
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_image,
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, hair_face_pil, mask_image,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     
