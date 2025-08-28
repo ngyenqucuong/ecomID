@@ -283,6 +283,10 @@
                 alert('Please upload a pose image');
                 return;
             }
+            if (!topLayerImageFile) {
+                alert('Please upload a top layer image');
+                return;
+            }
            
             if (!prompt.trim()) {
                 alert('Please enter a prompt');
@@ -389,23 +393,6 @@
             document.body.removeChild(link);
         }
         
-        function useAsBase(imageUrl) {
-            // Convert the result image to be used as base image
-            fetch(imageUrl)
-                .then(response => response.blob())
-                .then(blob => {
-                    const file = new File([blob], 'base_image.png', { type: 'image/png' });
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.items.add(file);
-                    
-                    document.getElementById('baseImage').files = dataTransfer.files;
-                    document.getElementById('baseImage').dispatchEvent(new Event('change'));
-                })
-                .catch(error => {
-                    console.error('Error using image as base:', error);
-                    alert('Failed to use image as base');
-                });
-        }
         
         async function updateJobHistory() {
             try {
