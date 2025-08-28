@@ -166,7 +166,7 @@ class HairFaceSegmentation:
         return result_pil, (x, y, w, h)  # Trả về ảnh và vị trí để gắn lại sau
 
     def blend_generated_image(self, original_image_input, generated_pil_image, 
-                            bbox, original_mask=None, output_path=None, blend_edges=True):
+                            bbox, output_path=None, blend_edges=True):
         """Gắn ảnh đã generate lại vào ảnh gốc
         
         Args:
