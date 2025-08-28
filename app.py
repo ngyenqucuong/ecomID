@@ -224,39 +224,7 @@ class HairFaceSegmentation:
         return PIL.Image.fromarray(result_rgb)
 
 
-def process_image_pipeline(input_image_path, diffusion_function):
-    """
-    Pipeline hoàn chỉnh với diffusion function
-    diffusion_function: hàm nhận PIL.Image và trả về PIL.Image
-    """
-    
-    
-    # Bước 1: Cắt vùng tóc/mặt
-    print("Đang cắt vùng tóc và mặt...")
-    hair_face_region, bbox = segmenter.extract_hair_face_region(
-        input_image_path, 
-        "hair_face_extracted.png"
-    )
-    
-    # Chuyển sang PIL Image để đưa vào diffusion
-    hair_face_pil = PIL.Image.fromarray(hair_face_region, 'RGBA')
-    print(f"Đã cắt vùng tóc/mặt, bounding box: {bbox}")
-    
-    # Bước 2: Chạy diffusion
-    print("Đang chạy diffusion...")
-    generated_pil_image = diffusion_function(hair_face_pil)
-    
-    # Bước 3: Gắn ảnh đã generate lại vào ảnh gốc
-    print("Đang gắn ảnh đã generate lại...")
-    final_result = segmenter.blend_generated_image(
-        input_image_path,
-        generated_pil_image,  # PIL.Image thay vì path
-        bbox,
-        "final_result.png"
-    )
-    print("Hoàn thành! Kết quả được lưu vào final_result.png")
-    
-    return "final_result.png"
+
 
 
 
@@ -371,14 +339,10 @@ def pred_face_mask(img, face_info):
 
 def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
     kps = face_info['kps']
-    bg_result = bg_remove_pipe(pose_image)
-    bg_mask = np.array(bg_result[0]['mask'])
-    
+
     mask = np.zeros([height, width, 3])
     face_mask = pred_face_mask(pose_image, face_info)
-    # Combine face mask with background removal mask
-    combined_mask = np.logical_and(face_mask > 0, bg_mask > 0)
-    mask[combined_mask] = 255
+    mask[face_mask>0] = 255
     face_mask = mask
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
@@ -386,7 +350,9 @@ def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
     face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
     control_image = draw_kps(pose_image, kps)
 
+    # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
     return face_mask, control_image
+
 
 
 def pred_face_info(img):
