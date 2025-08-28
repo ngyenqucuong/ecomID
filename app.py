@@ -1,3 +1,4 @@
+from tkinter import Image
 import numpy as np
 import cv2
 import torch
@@ -137,10 +138,14 @@ class HairFaceSegmentation:
         
         return image, combined_mask
 
-    def extract_hair_face_region(self, image_input, padding=5):
+    def extract_hair_face_region(self, image_input):
         """Cắt vùng tóc và mặt ra khỏi ảnh"""
+        pose_input = image_input.copy()
         image, combined_mask = self.get_combined_mask(image_input)
-        
+        # pose input erase follow combined_mask
+        e_mask = PIL.Image.fromarray(combined_mask.astype(np.uint8)).convert("L")
+        pose_input = pose_input.convert("RGBA")
+        image_without_bg = PIL.Image.composite(pose_input, PIL.Image.new("RGBA", image.size, (255, 255, 255, 255)), e_mask)
         # Tìm bounding box của mask
         contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
@@ -150,20 +155,14 @@ class HairFaceSegmentation:
         largest_contour = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(largest_contour)
         
-        # Thêm padding
-        x = max(0, x - padding)
-        y = max(0, y - padding)
-        w = min(image.shape[1] - x, w + 2*padding)
-        h = min(image.shape[0] - y, h + 2*padding)
-        
         # Cắt ảnh và mask
         cropped_image = image[y:y+h, x:x+w]
         
         # Giữ nguyên background, chỉ crop theo bounding box - trả về RGB
         result = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
         result_pil = PIL.Image.fromarray(result, 'RGB')
-        
-        return result_pil, (x, y, w, h)  # Trả về ảnh và vị trí để gắn lại sau
+
+        return result_pil, (x, y, w, h), image_without_bg  # Trả về ảnh và vị trí để gắn lại sau
 
 
 
@@ -356,7 +355,7 @@ os.makedirs(results_dir, exist_ok=True)
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,top_layer_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
-    hair_face_pil, bbox = segmenter.extract_hair_face_region(
+    hair_face_pil, bbox,test_layer_image = segmenter.extract_hair_face_region(
         pose_image, 
     )
     
@@ -378,12 +377,12 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
+    new_generated_image = PIL.Image.new("RGBA", test_layer_image.size)
     x, y, w, h = bbox
 
     new_generated_image.paste(image, (x, y))
-    result_image = PIL.Image.new("RGBA", top_layer_image.size)
-    result_image = PIL.Image.alpha_composite(new_generated_image, top_layer_image.convert('RGBA'))
+    result_image = PIL.Image.new("RGBA", test_layer_image.size)
+    result_image = PIL.Image.alpha_composite(new_generated_image, test_layer_image.convert('RGBA'))
     # paste the generated image on the bottom the top_layer_image in the top follow bbox
     
 
