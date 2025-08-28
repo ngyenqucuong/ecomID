@@ -136,7 +136,7 @@ class HairFaceSegmentation:
         
         return image, combined_mask, face_mask, hair_mask
 
-    def extract_hair_face_region(self, image_input, output_path=None, padding=50):
+    def extract_hair_face_region(self, image_input, output_path=None, padding=0):
         """Cắt vùng tóc và mặt ra khỏi ảnh"""
         image, combined_mask, face_mask, hair_mask = self.get_combined_mask(image_input)
         
@@ -417,7 +417,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     )
     
     # Chuyển sang PIL Image để đưa vào diffusion
-    hair_face_pil = PIL.Image.fromarray(hair_face_region, 'RGB')
+    hair_face_pil = PIL.Image.fromarray(hair_face_region, 'RGBA').convert('RGB')
     width, height = hair_face_pil.size
     pose_info = insightface_app.get(cv2.cvtColor(np.array(hair_face_pil), cv2.COLOR_RGB2BGR))
     pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
