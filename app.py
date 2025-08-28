@@ -4,7 +4,6 @@ import torch
 import math
 import PIL.Image
 from insightface.app import FaceAnalysis
-from transformers import pipeline
 import logging
 import os
 import random
@@ -25,6 +24,8 @@ import json
 from pydantic import BaseModel
 from typing import Optional
 import facer
+from transformers import pipeline
+
 
 
 from huggingface_hub import hf_hub_download
@@ -35,22 +36,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 insightface_app = None
-bg_remove_pipe = None
 pipeline_swap = None
 face_parser = None
+bg_remove_pipe = None
+
 executor = ThreadPoolExecutor(max_workers=1)
 
 
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app,bg_remove_pipe,face_parser
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
                                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
         insightface_app.prepare(ctx_id=0, det_size=(640, 640))
-        bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True, device='cuda')
         file_path = hf_hub_download(
             repo_id="lllyasviel/fav_models",
             filename="fav/realisticStockPhoto_v20.safetensors",
@@ -68,6 +69,8 @@ def initialize_pipelines():
         attention.ORTHO_v2 = True
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
+        bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True, device='cuda')
+
 
 
 
@@ -146,23 +149,65 @@ def pred_face_mask(img, face_info):
     face_mask = face_mask.cpu().numpy()
 
     return face_mask
-
+def create_background_preserving_mask(pose_image, face_info, bg_remove_pipe,width,height, expand_subject=False):
+    """Create mask that allows inpainting only the subject while preserving background"""
+    
+    # Get subject mask from background removal
+    bg_result = bg_remove_pipe(pose_image)
+    subject_mask = np.array(bg_result[0]['mask'])
+    
+    # Get face mask from face parsing
+    face_mask = pred_face_mask(pose_image, face_info)
+    
+    if expand_subject:
+        # Option 1: Replace entire subject
+        final_mask = np.zeros([height, width, 3])
+        final_mask[subject_mask > 127] = 255
+    else:
+        # Option 2: Only face area within subject boundaries
+        final_mask = np.zeros([height, width, 3])
+        combined_area = np.logical_and(face_mask > 0, subject_mask > 127)
+        final_mask[combined_area] = 255
+    
+    # Smooth the mask edges
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+    final_mask = cv2.morphologyEx(final_mask, cv2.MORPH_CLOSE, kernel)
+    final_mask = cv2.GaussianBlur(final_mask, (5, 5), 0)
+    
+    return final_mask
 
 def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
     kps = face_info['kps']
-
-    mask = np.zeros([height, width, 3])
-    face_mask = pred_face_mask(pose_image, face_info)
-    mask[face_mask>0] = 255
-    face_mask = mask
-
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
-    face_mask = cv2.dilate(face_mask, kernel, iterations=2)
+    
+    # Create background-preserving mask
+    face_mask = create_background_preserving_mask(
+        pose_image, face_info, bg_remove_pipe, width, height, expand_subject=False
+    )
+    
     face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
     control_image = draw_kps(pose_image, kps)
 
-    # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
     return face_mask, control_image
+
+# def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
+#     kps = face_info['kps']
+#     bg_result = bg_remove_pipe(pose_image)
+#     bg_mask = np.array(bg_result[0]['mask'])
+    
+#     mask = np.zeros([height, width, 3])
+#     face_mask = pred_face_mask(pose_image, face_info)
+#     # Combine face mask with background removal mask
+#     combined_mask = np.logical_and(face_mask > 0, bg_mask > 0)
+#     mask[combined_mask] = 255
+#     face_mask = mask
+
+#     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
+#     face_mask = cv2.dilate(face_mask, kernel, iterations=2)
+#     face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
+#     control_image = draw_kps(pose_image, kps)
+
+#     # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
+#     return face_mask, control_image
 
 
 def pred_face_info(img):

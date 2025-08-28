@@ -3,12 +3,11 @@ import cv2
 import insightface
 import torch
 import torch.nn as nn
-from diffusers import DPMSolverMultistepScheduler, UNet2DConditionModel,DEISMultistepScheduler
+from diffusers import DPMSolverMultistepScheduler
 from pipeline_stable_diffusion_xl_inpaint_ecomid import StableDiffusionXLInpaintPulidPipeline
 from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
-from huggingface_hub import hf_hub_download, snapshot_download
-from insightface.app import FaceAnalysis
+from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import normalize, resize
