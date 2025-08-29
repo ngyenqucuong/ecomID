@@ -142,9 +142,9 @@ class HairFaceSegmentation:
         pose_input = image_input.copy()
         image, combined_mask = self.get_combined_mask(image_input)
         # pose input erase follow combined_mask
-        e_mask = PIL.Image.fromarray(combined_mask.astype(np.uint8)).convert("L")
+        e_mask = PIL.Image.fromarray(combined_mask.astype(np.uint8))
         pose_input = pose_input.convert("RGBA")
-        image_without_bg = PIL.Image.composite(pose_input, PIL.Image.new("RGBA", pose_input.size, (255, 255, 255, 255)), e_mask)
+        image_without_bg = PIL.Image.composite(pose_input, PIL.Image.new("RGBA", pose_input.size, (0, 0, 0, 0)), e_mask)
         # Tìm bounding box của mask
         contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
