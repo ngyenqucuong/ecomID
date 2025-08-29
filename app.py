@@ -162,7 +162,7 @@ class HairFaceSegmentation:
         result = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
         result_pil = PIL.Image.fromarray(result, 'RGB')
 
-        return result_pil, (x, y, w, h), image_without_bg  # Trả về ảnh và vị trí để gắn lại sau
+        return result_pil, (x, y, w, h), image_without_bg,e_mask  # Trả về ảnh và vị trí để gắn lại sau
 
 
 
@@ -355,7 +355,7 @@ os.makedirs(results_dir, exist_ok=True)
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,top_layer_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
-    hair_face_pil, bbox,test_layer_image = segmenter.extract_hair_face_region(
+    hair_face_pil, bbox,test_layer_image,e_mask = segmenter.extract_hair_face_region(
         pose_image, 
     )
     
