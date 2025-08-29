@@ -1,4 +1,3 @@
-from tkinter import Image
 import numpy as np
 import cv2
 import torch
