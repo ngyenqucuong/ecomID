@@ -100,7 +100,6 @@ class HairFaceSegmentation:
         
         # Tóc = toàn bộ người - mặt (đã dilate)
         hair_mask = person_mask.copy()
-        hair_mask[face_mask_dilated > 0] = 0
         
         # Chỉ giữ phần trên của mask (tóc thường ở phía trên)
         h = hair_mask.shape[0]
@@ -126,16 +125,8 @@ class HairFaceSegmentation:
         
         # Lấy mask toàn bộ người
         results = self.selfie_segmentation.process(image_rgb)
-        person_mask = (results.segmentation_mask > 0.5).astype(np.uint8) * 255
-        
-        # Lấy mask mặt và tóc
-        face_mask = self.get_face_mask(image)
-        hair_mask = self.get_hair_mask(image, person_mask)
-        
-        # Kết hợp mask tóc và mặt
-        combined_mask = cv2.bitwise_or(face_mask, hair_mask)
-        
-        return image, combined_mask
+        person_mask = (results.segmentation_mask > 0.5).astype(np.uint8) * 255        
+        return image, person_mask
 
     def extract_hair_face_region(self, image_input):
         """Cắt vùng tóc và mặt ra khỏi ảnh"""
