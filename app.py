@@ -360,34 +360,34 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     
     # Chuyển sang PIL Image để đưa vào diffusion
 
-    width, height = hair_face_pil.size
-    pose_info = insightface_app.get(cv2.cvtColor(np.array(hair_face_pil), cv2.COLOR_RGB2BGR))
-    pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
-    mask_image, control_image = prepareMaskAndPoseAndControlImage(
-        hair_face_pil,
-        pose_info,
-        width,
-        height
-    )
-    face_info = pred_face_info(face_image)
-    face_embed = np.array(face_info['embedding'])[None, ...]
-    id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, hair_face_pil, mask_image,
-                             request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
+    # width, height = hair_face_pil.size
+    # pose_info = insightface_app.get(cv2.cvtColor(np.array(hair_face_pil), cv2.COLOR_RGB2BGR))
+    # pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
+    # mask_image, control_image = prepareMaskAndPoseAndControlImage(
+    #     hair_face_pil,
+    #     pose_info,
+    #     width,
+    #     height
+    # )
+    # face_info = pred_face_info(face_image)
+    # face_embed = np.array(face_info['embedding'])[None, ...]
+    # id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
+    # image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, hair_face_pil, mask_image,
+    #                          request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    new_generated_image = PIL.Image.new("RGBA", test_layer_image.size)
+    # new_generated_image = PIL.Image.new("RGBA", test_layer_image.size)
     x, y, w, h = bbox
 
-    new_generated_image.paste(image, (x, y))
-    result_image = PIL.Image.new("RGBA", test_layer_image.size)
-    result_image = PIL.Image.alpha_composite(new_generated_image, test_layer_image.convert('RGBA'))
+    # new_generated_image.paste(image, (x, y))
+    # result_image = PIL.Image.new("RGBA", test_layer_image.size)
+    # result_image = PIL.Image.alpha_composite(new_generated_image, test_layer_image.convert('RGBA'))
     # paste the generated image on the bottom the top_layer_image in the top follow bbox
     
 
     filepath = os.path.join(results_dir, filename)
    
-    result_image.save(filepath)
+    e_mask.save(filepath)
         
     metadata = {
         "job_id": job_id,
