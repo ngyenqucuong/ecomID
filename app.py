@@ -288,29 +288,30 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
         pose_image, 
     )
     # from bbox crop pose_image
-    top_layer_image = make_head_transparent(pose_image, head_img)
-    crop_pose_image = pose_image.crop(bbox)
+    # top_layer_image = make_head_transparent(pose_image, head_img)
+    # crop_pose_image = pose_image.crop(bbox)
     mask_img = mask_head.crop(bbox)    
 
-    width, height = crop_pose_image.size
-    pose_info = pred_info(crop_pose_image)
-    control_image = draw_kps(crop_pose_image, pose_info['kps'])
+    # width, height = crop_pose_image.size
+    width, height = pose_image.size
+    pose_info = pred_info(pose_image)
+    control_image = draw_kps(pose_image, pose_info['kps'])
     face_info = pred_info(face_image)
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
-    x,y,_,_ = bbox
-    new_generated_image.paste(image, (x, y))
-    result_image = PIL.Image.new("RGBA", top_layer_image.size)
-    result_image = PIL.Image.alpha_composite(new_generated_image, top_layer_image)    
+    # new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
+    # x,y,_,_ = bbox
+    # new_generated_image.paste(image, (x, y))
+    # result_image = PIL.Image.new("RGBA", top_layer_image.size)
+    # result_image = PIL.Image.alpha_composite(new_generated_image, top_layer_image)    
 
     filepath = os.path.join(results_dir, filename)
    
-    result_image.save(filepath)
+    image.save(filepath)
         
     metadata = {
         "job_id": job_id,
