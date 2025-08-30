@@ -122,8 +122,9 @@ class HeadSegmentation:
             else:
                 bbox = (0, 0, 0, 0)
 
+            mask_pil = PIL.Image.fromarray(binary_mask, 'L').convert('RGB')
 
-            return extracted_pil, bbox
+            return extracted_pil, bbox,mask_pil
 
         except Exception as e:
             raise RuntimeError(f"Segmentation error: {str(e)}")
@@ -251,7 +252,7 @@ def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
     face_mask = pred_face_mask(pose_image, face_info)
     mask[face_mask>0] = 255
     face_mask = mask
-
+    
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
     face_mask = cv2.dilate(face_mask, kernel, iterations=2)
     face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
@@ -318,7 +319,7 @@ os.makedirs(results_dir, exist_ok=True)
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,top_layer_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
-    head_img, bbox = segmenter.extract_head(
+    head_img, bbox ,mask_head= segmenter.extract_head(
         pose_image, 
     )
     segmenter.close()
@@ -333,16 +334,11 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     x,y,width, height = bbox
     pose_info = insightface_app.get(cv2.cvtColor(np.array(crop_pose_image), cv2.COLOR_RGB2BGR))
     pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
-    mask_image, control_image = prepareMaskAndPoseAndControlImage(
-        crop_pose_image,
-        pose_info,
-        width,
-        height
-    )
+    control_image = draw_kps(crop_pose_image, pose_info['kps'])
     face_info = pred_face_info(face_image)
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_image,
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_head,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
