@@ -48,6 +48,9 @@ class HeadSegmentation:
     def __init__(self, model_path='selfie_multiclass_256x256.tflite'):
         """Initialize MediaPipe ImageSegmenter with multi-class selfie model."""
         try:
+            if not os.path.exists(model_path):
+                print(f"Downloading model to {model_path}...")
+                model_path = self.download_model(model_path)
             self.options = mp.tasks.vision.ImageSegmenterOptions(
                 base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
                 running_mode=mp.tasks.vision.RunningMode.IMAGE,
@@ -56,7 +59,14 @@ class HeadSegmentation:
             self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(self.options)
         except Exception as e:
             raise RuntimeError(f"Failed to initialize segmenter: {str(e)}")
+    def download_model(self, model_path):
+        """Download the model from Hugging Face and verify its integrity."""
+        repo_id = "yolain/selfie_multiclass_256x256"
+        filename = "selfie_multiclass_256x256.tflite"
 
+        # Download the file
+        downloaded_path = hf_hub_download(repo_id=repo_id, filename=filename, local_dir='./')
+        return downloaded_path
     def extract_head(self, image_input):
         """Extract head (hair + face-skin) from a PIL Image, returning RGBA PIL Image."""
         if not isinstance(image_input, PIL.Image.Image):
