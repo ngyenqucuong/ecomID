@@ -292,7 +292,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     crop_pose_image = pose_image.crop(bbox)
     mask_img = mask_head.crop(bbox)    
 
-    x,y,width, height = bbox
+    width, height = crop_pose_image.size
     pose_info = pred_info(crop_pose_image)
     control_image = draw_kps(crop_pose_image, pose_info['kps'])
     face_info = pred_info(face_image)
@@ -303,7 +303,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
-
+    x,y,_,_ = bbox
     new_generated_image.paste(image, (x, y))
     result_image = PIL.Image.new("RGBA", top_layer_image.size)
     result_image = PIL.Image.alpha_composite(new_generated_image, top_layer_image)    
