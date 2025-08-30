@@ -99,15 +99,20 @@ class HeadSegmentation:
             if binary_mask.shape != image.shape[:2]:
                 binary_mask = cv2.resize(binary_mask, (image.shape[1], image.shape[0]), 
                                       interpolation=cv2.INTER_NEAREST)
-                # Optional: Smooth edges
-                binary_mask = cv2.GaussianBlur(binary_mask, (5, 5), 0)
-                binary_mask = (binary_mask > 128).astype(np.uint8) * 255
+                # # Optional: Smooth edges
+                # binary_mask = cv2.GaussianBlur(binary_mask, (5, 5), 0)
+                # binary_mask = (binary_mask > 128).astype(np.uint8) * 255
             
             # Apply mask
             mask_3channel = cv2.merge([binary_mask] * 3)
-            extracted_image = cv2.bitwise_and(image, mask_3channel)
+            extracted_image = np.zeros_like(image)
+            extracted_image[mask_3channel > 0] = image[mask_3channel > 0]
+            
+            # Convert to RGBA with proper alpha
             extracted_image_rgba = cv2.cvtColor(extracted_image, cv2.COLOR_BGR2BGRA)
             extracted_image_rgba[:, :, 3] = binary_mask  # Set alpha channel
+            
+            extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
 
             # bbox
             coords = np.where(binary_mask > 0)
@@ -119,7 +124,7 @@ class HeadSegmentation:
             else:
                 bbox = (0, 0, 0, 0)
 
-            return PIL.Image.fromarray(extracted_image_rgba, 'RGBA'), bbox
+            return extracted_pil, bbox
 
         except Exception as e:
             raise RuntimeError(f"Segmentation error: {str(e)}")
@@ -317,6 +322,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     head_img, bbox = segmenter.extract_head(
         pose_image, 
     )
+    segmenter.close()
     # mask_head = PIL.Image.new("L", head_img.size, 0)
     
     # Chuyển sang PIL Image để đưa vào diffusion
