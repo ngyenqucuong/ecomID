@@ -288,7 +288,6 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     head_img, bbox ,mask_head= segmenter.extract_head(
         pose_image, 
     )
-    segmenter.close()
     # from bbox crop pose_image
     top_layer_image = make_head_transparent(pose_image, head_img)
     crop_pose_image = pose_image.crop(bbox)
