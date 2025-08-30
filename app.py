@@ -44,120 +44,79 @@ bg_remove_pipe = None
 segmenter = None
 executor = ThreadPoolExecutor(max_workers=1)
 
-class HairFaceSegmentation:
-    def __init__(self):
-        # Khởi tạo MediaPipe Selfie Segmentation
-        self.mp_selfie_segmentation = mp.solutions.selfie_segmentation
-        self.selfie_segmentation = self.mp_selfie_segmentation.SelfieSegmentation(model_selection=1)
-        
-        # Khởi tạo MediaPipe Face Mesh để detect face landmarks
-        self.mp_face_mesh = mp.solutions.face_mesh
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5
-        )
+class HeadSegmentation:
+    def __init__(self, model_path='selfie_multiclass_256x256.tflite'):
+        """Initialize MediaPipe ImageSegmenter with multi-class selfie model."""
+        try:
+            self.options = mp.tasks.vision.ImageSegmenterOptions(
+                base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
+                running_mode=mp.tasks.vision.RunningMode.IMAGE,
+                output_category_mask=True
+            )
+            self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(self.options)
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize segmenter: {str(e)}")
 
-    def get_face_mask(self, image):
-        """Tạo mask cho khuôn mặt dựa trên face landmarks"""
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = self.face_mesh.process(image_rgb)
+    def extract_head(self, image_input):
+        """Extract head (hair + face-skin) from a PIL Image, returning RGBA PIL Image."""
+        if not isinstance(image_input, PIL.Image.Image):
+            raise ValueError("Input must be a PIL Image object")
         
-        mask = np.zeros(image.shape[:2], dtype=np.uint8)
-        
-        if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
-                # Lấy tọa độ các điểm trên khuôn mặt
-                h, w = image.shape[:2]
-                points = []
-                
-                # Outline của khuôn mặt (face oval)
-                face_oval_indices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
-                                   397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
-                                   172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109]
-                
-                for idx in face_oval_indices:
-                    landmark = face_landmarks.landmark[idx]
-                    x = int(landmark.x * w)
-                    y = int(landmark.y * h)
-                    points.append([x, y])
-                
-                # Tạo mask từ các điểm
-                points = np.array(points, dtype=np.int32)
-                cv2.fillPoly(mask, [points], 255)
-        
-        return mask
+        try:
+            # Handle alpha channel in input
+            if image_input.mode == 'RGBA':
+                print("Warning: Input image has alpha channel, converting to RGB")
+            image_np = np.array(image_input.convert('RGB'))
+            image = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_np)
+            
+            # Run segmentation
+            segmentation_result = self.segmenter.segment(mp_image)
+            category_mask = segmentation_result.category_mask
+            if category_mask is None:
+                raise ValueError("Segmentation failed: No category mask returned")
+            
+            # Extract category mask
+            mask = category_mask.numpy_view()
+            
+            # Categories based on selfie_multiclass_256x256: 1=hair, 3=face-skin
+            head_categories = [1, 3]
+            binary_mask = np.zeros_like(mask, dtype=np.uint8)
+            for cat in head_categories:
+                binary_mask[mask == cat] = 255
+            
+            # Resize and smooth mask
+            if binary_mask.shape != image.shape[:2]:
+                binary_mask = cv2.resize(binary_mask, (image.shape[1], image.shape[0]), 
+                                      interpolation=cv2.INTER_NEAREST)
+                # Optional: Smooth edges
+                binary_mask = cv2.GaussianBlur(binary_mask, (5, 5), 0)
+                binary_mask = (binary_mask > 128).astype(np.uint8) * 255
+            
+            # Apply mask
+            mask_3channel = cv2.merge([binary_mask] * 3)
+            extracted_image = cv2.bitwise_and(image, mask_3channel)
+            extracted_image_rgba = cv2.cvtColor(extracted_image, cv2.COLOR_BGR2BGRA)
+            extracted_image_rgba[:, :, 3] = binary_mask  # Set alpha channel
 
+            # bbox
+            coords = np.where(binary_mask > 0)
+            if len(coords[0]) > 0:  # Ensure head region exists
+                y_min, x_min = coords[0].min(), coords[1].min()
+                y_max, x_max = coords[0].max(), coords[1].max()
+                width, height = x_max - x_min + 1, y_max - y_min + 1
+                bbox = (x_min, y_min, width, height)
+            else:
+                bbox = (0, 0, 0, 0)
 
-    def get_hair_mask(self, image, person_mask):
-        """Tạo mask cho tóc bằng cách trừ face mask khỏi person mask"""
-        face_mask = self.get_face_mask(image)
-        
-        # Dilate face mask một chút để loại bỏ phần cổ
-        kernel = np.ones((20, 20), np.uint8)
-        face_mask_dilated = cv2.dilate(face_mask, kernel, iterations=1)
-        
-        # Tóc = toàn bộ người - mặt (đã dilate)
-        hair_mask = person_mask.copy()
-        
-        # Chỉ giữ phần trên của mask (tóc thường ở phía trên)
-        h = hair_mask.shape[0]
-        hair_mask[int(h*0.7):] = 0  # Bỏ phần dưới 70% chiều cao
-        
-        return hair_mask
+            return PIL.Image.fromarray(extracted_image_rgba, 'RGBA'), bbox
 
-    def get_combined_mask(self, image_input):
-        """Lấy mask kết hợp của tóc và mặt"""
-        # Xử lý input (có thể là path hoặc PIL.Image)
-        if isinstance(image_input, str):
-            # Nếu là path
-            image = cv2.imread(image_input)
-            if image is None:
-                raise ValueError("Không thể đọc ảnh")
-        else:
-            # Nếu là PIL.Image
-            image_rgb_pil = image_input.convert('RGB')
-            image = cv2.cvtColor(np.array(image_rgb_pil), cv2.COLOR_RGB2BGR)
-        
-        # Chuyển sang RGB cho MediaPipe
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # Lấy mask toàn bộ người
-        results = self.selfie_segmentation.process(image_rgb)
-        person_mask = (results.segmentation_mask > 0.5).astype(np.uint8) * 255        
-        return image, person_mask
+        except Exception as e:
+            raise RuntimeError(f"Segmentation error: {str(e)}")
 
-    def extract_hair_face_region(self, image_input):
-        """Cắt vùng tóc và mặt ra khỏi ảnh"""
-        pose_input = image_input.copy()
-        image, combined_mask = self.get_combined_mask(image_input)
-        # pose input erase follow combined_mask
-        e_mask = PIL.Image.fromarray(combined_mask.astype(np.uint8))
-        pose_input = pose_input.convert("RGBA")
-        image_without_bg = PIL.Image.composite(pose_input, PIL.Image.new("RGBA", pose_input.size, (0, 0, 0, 0)), e_mask)
-        # Tìm bounding box của mask
-        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            raise ValueError("Không tìm thấy vùng tóc/mặt")
-        
-        # Lấy bounding box lớn nhất
-        largest_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(largest_contour)
-        
-        # Cắt ảnh và mask
-        cropped_image = image[y:y+h, x:x+w]
-        
-        # Giữ nguyên background, chỉ crop theo bounding box - trả về RGB
-        result = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
-        result_pil = PIL.Image.fromarray(result, 'RGB')
-
-        return result_pil, (x, y, w, h), image_without_bg,e_mask  # Trả về ảnh và vị trí để gắn lại sau
-
-
-
-
-
+    def close(self):
+        """Clean up segmenter resources."""
+        self.segmenter.close()
 
 
 
@@ -188,7 +147,7 @@ def initialize_pipelines():
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
         bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True, device='cuda')
-        segmenter = HairFaceSegmentation()
+        segmenter = HeadSegmentation()
 
 
 
@@ -345,9 +304,10 @@ os.makedirs(results_dir, exist_ok=True)
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,top_layer_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
-    hair_face_pil, bbox,test_layer_image,e_mask = segmenter.extract_hair_face_region(
+    head_img, bbox = segmenter.extract_head(
         pose_image, 
     )
+    mask_head = PIL.Image.new("L", head_img.size, 0)
     
     # Chuyển sang PIL Image để đưa vào diffusion
 
@@ -378,7 +338,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     filepath = os.path.join(results_dir, filename)
    
-    e_mask.save(filepath)
+    mask_head.save(filepath)
         
     metadata = {
         "job_id": job_id,
