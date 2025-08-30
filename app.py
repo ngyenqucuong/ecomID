@@ -76,9 +76,10 @@ class HeadSegmentation:
             # Handle alpha channel in input
             if image_input.mode == 'RGBA':
                 print("Warning: Input image has alpha channel, converting to RGB")
-            image_np = np.array(image_input.convert('RGB'))
-            image = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_np)
+            
+            # Keep everything in RGB for consistency
+            image_rgb = np.array(image_input.convert('RGB'))
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
             
             # Run segmentation
             segmentation_result = self.segmenter.segment(mp_image)
@@ -95,28 +96,25 @@ class HeadSegmentation:
             for cat in head_categories:
                 binary_mask[mask == cat] = 255
             
-            # Resize and smooth mask
-            if binary_mask.shape != image.shape[:2]:
-                binary_mask = cv2.resize(binary_mask, (image.shape[1], image.shape[0]), 
-                                      interpolation=cv2.INTER_NEAREST)
-                # # Optional: Smooth edges
-                # binary_mask = cv2.GaussianBlur(binary_mask, (5, 5), 0)
-                # binary_mask = (binary_mask > 128).astype(np.uint8) * 255
+            # Resize mask if needed
+            if binary_mask.shape != image_rgb.shape[:2]:
+                binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
+                                    interpolation=cv2.INTER_NEAREST)
             
-            # Apply mask
-            mask_3channel = cv2.merge([binary_mask] * 3)
-            extracted_image = np.zeros_like(image)
-            extracted_image[mask_3channel > 0] = image[mask_3channel > 0]
+            # Apply mask - keep in RGB
+            extracted_image_rgb = image_rgb.copy()
+            extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
             
-            # Convert to RGBA with proper alpha
-            extracted_image_rgba = cv2.cvtColor(extracted_image, cv2.COLOR_BGR2BGRA)
-            extracted_image_rgba[:, :, 3] = binary_mask  # Set alpha channel
+            # Create RGBA image
+            extracted_image_rgba = np.zeros((*image_rgb.shape[:2], 4), dtype=np.uint8)
+            extracted_image_rgba[:, :, :3] = extracted_image_rgb  # RGB channels
+            extracted_image_rgba[:, :, 3] = binary_mask  # Alpha channel
             
             extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
 
-            # bbox
+            # Calculate bounding box
             coords = np.where(binary_mask > 0)
-            if len(coords[0]) > 0:  # Ensure head region exists
+            if len(coords[0]) > 0:
                 y_min, x_min = coords[0].min(), coords[1].min()
                 y_max, x_max = coords[0].max(), coords[1].max()
                 width, height = x_max - x_min + 1, y_max - y_min + 1
