@@ -317,7 +317,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     head_img, bbox = segmenter.extract_head(
         pose_image, 
     )
-    mask_head = PIL.Image.new("L", head_img.size, 0)
+    # mask_head = PIL.Image.new("L", head_img.size, 0)
     
     # Chuyển sang PIL Image để đưa vào diffusion
 
@@ -348,7 +348,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     filepath = os.path.join(results_dir, filename)
    
-    mask_head.save(filepath)
+    head_img.save(filepath)
         
     metadata = {
         "job_id": job_id,
