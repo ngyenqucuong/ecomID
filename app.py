@@ -101,7 +101,16 @@ class HeadSegmentation:
                 binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
                                     interpolation=cv2.INTER_NEAREST)
                         
+            extracted_image_rgb = image_rgb.copy()
+            extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
             
+            # Create RGBA image
+            extracted_image_rgba = np.zeros((*image_rgb.shape[:2], 4), dtype=np.uint8)
+            extracted_image_rgba[:, :, :3] = extracted_image_rgb  # RGB channels
+            extracted_image_rgba[:, :, 3] = binary_mask  # Alpha channel
+            
+            extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
+
 
             # Calculate bounding box
             coords = np.where(binary_mask > 0)
@@ -115,7 +124,7 @@ class HeadSegmentation:
 
             mask_pil = PIL.Image.fromarray(binary_mask, 'L').convert('RGB')
 
-            return bbox,mask_pil
+            return extracted_pil,bbox,mask_pil
 
         except Exception as e:
             raise RuntimeError(f"Segmentation error: {str(e)}")
@@ -274,14 +283,14 @@ os.makedirs(results_dir, exist_ok=True)
 
 
 
-async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,top_layer_image: PIL.Image.Image,request: Img2ImgRequest):
+async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
     head_img, bbox ,mask_head= segmenter.extract_head(
         pose_image, 
     )
     segmenter.close()
     # from bbox crop pose_image
-    
+    top_layer_image = make_head_transparent(pose_image, head_img)
     crop_pose_image = pose_image.crop(bbox)
     mask_img = mask_head.crop(bbox)
     # mask_head = PIL.Image.new("L", head_img.size, 0)
@@ -298,17 +307,15 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    # new_generated_image = PIL.Image.new("RGBA", test_layer_image.size)
+    new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
 
-    # new_generated_image.paste(image, (x, y))
-    # result_image = PIL.Image.new("RGBA", test_layer_image.size)
-    # result_image = PIL.Image.alpha_composite(new_generated_image, test_layer_image.convert('RGBA'))
-    # paste the generated image on the bottom the top_layer_image in the top follow bbox
-    
+    new_generated_image.paste(image, (x, y))
+    result_image = PIL.Image.new("RGBA", top_layer_image.size)
+    result_image = PIL.Image.alpha_composite(new_generated_image, top_layer_image)    
 
     filepath = os.path.join(results_dir, filename)
    
-    image.save(filepath)
+    result_image.save(filepath)
         
     metadata = {
         "job_id": job_id,
