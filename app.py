@@ -115,12 +115,13 @@ class HeadSegmentation:
             # Calculate bounding box
             coords = np.where(binary_mask > 0)
             if len(coords[0]) > 0:
-                y_min, x_min = coords[0].min(), coords[1].min()
-                y_max, x_max = coords[0].max(), coords[1].max()
-                width, height = x_max - x_min + 1, y_max - y_min + 1
-                bbox = (x_min, y_min, width, height)
+                y_min, y_max = coords[0].min(), coords[0].max()
+                x_min, x_max = coords[1].min(), coords[1].max()
+                # PIL crop expects (left, top, right, bottom)
+                bbox = (x_min, y_min, x_max + 1, y_max + 1)
             else:
                 bbox = (0, 0, 0, 0)
+
 
             return extracted_pil, bbox
 
@@ -329,20 +330,20 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     
     # Chuyển sang PIL Image để đưa vào diffusion
 
-    # x,y,width, height = bbox
-    # pose_info = insightface_app.get(cv2.cvtColor(np.array(crop_pose_image), cv2.COLOR_RGB2BGR))
-    # pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
-    # mask_image, control_image = prepareMaskAndPoseAndControlImage(
-    #     crop_pose_image,
-    #     pose_info,
-    #     width,
-    #     height
-    # )
-    # face_info = pred_face_info(face_image)
-    # face_embed = np.array(face_info['embedding'])[None, ...]
-    # id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    # image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_image,
-    #                          request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
+    x,y,width, height = bbox
+    pose_info = insightface_app.get(cv2.cvtColor(np.array(crop_pose_image), cv2.COLOR_RGB2BGR))
+    pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
+    mask_image, control_image = prepareMaskAndPoseAndControlImage(
+        crop_pose_image,
+        pose_info,
+        width,
+        height
+    )
+    face_info = pred_face_info(face_image)
+    face_embed = np.array(face_info['embedding'])[None, ...]
+    id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_image,
+                             request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     # new_generated_image = PIL.Image.new("RGBA", test_layer_image.size)
@@ -355,7 +356,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     filepath = os.path.join(results_dir, filename)
    
-    crop_pose_image.save(filepath)
+    image.save(filepath)
         
     metadata = {
         "job_id": job_id,
