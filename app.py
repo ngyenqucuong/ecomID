@@ -6,7 +6,6 @@ import PIL.Image
 from insightface.app import FaceAnalysis
 import logging
 import os
-import random
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -291,10 +290,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     # from bbox crop pose_image
     top_layer_image = make_head_transparent(pose_image, head_img)
     crop_pose_image = pose_image.crop(bbox)
-    mask_img = mask_head.crop(bbox)
-    # mask_head = PIL.Image.new("L", head_img.size, 0)
-    
-    # Chuyển sang PIL Image để đưa vào diffusion
+    mask_img = mask_head.crop(bbox)    
 
     x,y,width, height = bbox
     pose_info = pred_info(crop_pose_image)
