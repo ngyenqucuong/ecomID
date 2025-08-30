@@ -100,17 +100,8 @@ class HeadSegmentation:
             if binary_mask.shape != image_rgb.shape[:2]:
                 binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
                                     interpolation=cv2.INTER_NEAREST)
+                        
             
-            # Apply mask - keep in RGB
-            extracted_image_rgb = image_rgb.copy()
-            extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
-            
-            # Create RGBA image
-            extracted_image_rgba = np.zeros((*image_rgb.shape[:2], 4), dtype=np.uint8)
-            extracted_image_rgba[:, :, :3] = extracted_image_rgb  # RGB channels
-            extracted_image_rgba[:, :, 3] = binary_mask  # Alpha channel
-            
-            extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
 
             # Calculate bounding box
             coords = np.where(binary_mask > 0)
@@ -124,7 +115,7 @@ class HeadSegmentation:
 
             mask_pil = PIL.Image.fromarray(binary_mask, 'L').convert('RGB')
 
-            return extracted_pil, bbox,mask_pil
+            return bbox,mask_pil
 
         except Exception as e:
             raise RuntimeError(f"Segmentation error: {str(e)}")
@@ -202,73 +193,39 @@ def draw_kps(image_pil, kps, color_list=[(255, 0, 0), (0, 255, 0), (0, 0, 255), 
     return out_img_pil
 
 
-def pred_face_mask(img, face_info):
-    points = []
-    rects = []
-    scores = []
-    image_ids = []
-    # for i in range(len(detected_faces)):
-
-    points.append(face_info['kps'])
-    rects.append(face_info['bbox'])
-    scores.append(face_info['det_score'])
-    image_ids.append(0)
-
-    face_info = {}
-    face_info['points'] = torch.tensor(points).to(device)
-    face_info['rects'] = torch.tensor(rects).to(device)
-    face_info['scores'] = torch.tensor(scores).to(device)
-    face_info['image_ids'] = torch.tensor(image_ids).to(device)
-
-    img = np.array(img)
-    reordered_img = torch.from_numpy(img).unsqueeze(0).permute(0, 3, 1, 2).to(device=device)
-
-    with torch.inference_mode():
-        faces = face_parser(reordered_img, face_info)
-
-    seg_logits = faces['seg']['logits']
-    seg_probs = seg_logits.softmax(dim=1)  # nfaces x nclasses x h x w
-
-    n_classes = seg_probs.size(1)
-    vis_seg_probs = seg_probs.argmax(dim=1).float() / n_classes * 255
-    vis_img = vis_seg_probs.sum(0, keepdim=True)
-
-    face_mask = vis_img != 0
-
-    # bbox = face_info['rects'][0]
-
-    face_mask = face_mask.unsqueeze(0)
-    face_mask = face_mask.squeeze().int()*255
-    face_mask = face_mask.cpu().numpy()
-
-    return face_mask
 
 
-
-def prepareMaskAndPoseAndControlImage(pose_image, face_info,width,height):
-    kps = face_info['kps']
-
-    mask = np.zeros([height, width, 3])
-    face_mask = pred_face_mask(pose_image, face_info)
-    mask[face_mask>0] = 255
-    face_mask = mask
+def make_head_transparent(original_image, extracted_head):
+    """Make only the head pixels transparent using the extracted head mask"""
+    # Convert original to RGBA if not already
+    if original_image.mode != 'RGBA':
+        result_image = original_image.convert('RGBA')
+    else:
+        result_image = original_image.copy()
     
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
-    face_mask = cv2.dilate(face_mask, kernel, iterations=2)
-    face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
-    control_image = draw_kps(pose_image, kps)
+    # Get alpha channel from extracted head
+    head_alpha = extracted_head.split()[-1]  # Get alpha channel
+    
+    # Resize alpha mask to match original image size if needed
+    if head_alpha.size != original_image.size:
+        head_alpha = head_alpha.resize(original_image.size, PIL.Image.LANCZOS)
+    
+    # Convert to numpy arrays
+    result_array = np.array(result_image)
+    mask_array = np.array(head_alpha)
+    
+    # Where mask is white (255), make original transparent
+    result_array[:, :, 3] = np.where(mask_array > 128, 0, result_array[:, :, 3])
+    
+    # Convert back to PIL
+    transparent_image = PIL.Image.fromarray(result_array, 'RGBA')
+    
+    return transparent_image
 
-    # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
-    return face_mask, control_image
-
-
-
-def pred_face_info(img):
-    face_info = insightface_app.get(cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))
-    face_info = sorted(face_info, key=lambda x: (x['bbox'][2] - x['bbox'][0]) * (x['bbox'][3] - x['bbox'][1]))[
-        -1]  # only use the maximum face
-
-    return face_info
+def pred_info(img):
+    info = insightface_app.get(cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))
+    info = max(info,key=lambda x: (x['bbox'][2] - x['bbox'][0]) * (x['bbox'][3] - x['bbox'][1]))
+    return info
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -326,19 +283,18 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     # from bbox crop pose_image
     
     crop_pose_image = pose_image.crop(bbox)
-
+    mask_img = mask_head.crop(bbox)
     # mask_head = PIL.Image.new("L", head_img.size, 0)
     
     # Chuyển sang PIL Image để đưa vào diffusion
 
     x,y,width, height = bbox
-    pose_info = insightface_app.get(cv2.cvtColor(np.array(crop_pose_image), cv2.COLOR_RGB2BGR))
-    pose_info = max(pose_info, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]))
+    pose_info = pred_info(crop_pose_image)
     control_image = draw_kps(crop_pose_image, pose_info['kps'])
-    face_info = pred_face_info(face_image)
+    face_info = pred_info(face_image)
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_head,
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
@@ -430,11 +386,12 @@ async def health_check():
     }
 
 
+
+
 @app.post("/img2img")
 async def img2img(
     base_image: UploadFile = File(...),
     pose_image: UploadFile = File(...),
-    top_layer_image: UploadFile = File(...),
     prompt: str = Form(""),
     negative_prompt: str = Form("flaws in the eyes, flaws in the face, flaws, lowres, non-HDRi, low quality, worst quality"),
     strength: float = Form(0.9),
@@ -458,7 +415,6 @@ async def img2img(
         # Load images
         base_img = PIL.Image.open(io.BytesIO(await base_image.read())).convert('RGB')
         pose_img = PIL.Image.open(io.BytesIO(await pose_image.read())).convert('RGB')
-        top_layer_img = PIL.Image.open(io.BytesIO(await top_layer_image.read()))
 
         request = Img2ImgRequest(
             num_inference_steps=num_inference_steps,
@@ -473,7 +429,7 @@ async def img2img(
         # Start background task
         loop = asyncio.get_event_loop()
         loop.run_in_executor(executor, lambda: asyncio.run(
-            gen_img2img(job_id, base_img, pose_img, top_layer_img, request)
+            gen_img2img(job_id, base_img, pose_img, request)
         ))
         
         return {"job_id": job_id, "status": "pending"}

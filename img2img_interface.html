@@ -125,24 +125,7 @@
                             </div>
                         </div>
                     </div>
-                    <div>
-                        <label class="block text-white font-medium mb-2">Top Layer Image</label>
-                        <div class="upload-area p-6 text-center cursor-pointer" onclick="document.getElementById('topLayerImage').click()">
-                            <input type="file" id="topLayerImage" accept="image/png" class="hidden">
-                            <div id="topLayerImagePreview" class="hidden">
-                                <img id="topLayerImageImg" class="max-w-full h-32 object-cover rounded-lg mx-auto">
-                                <div class="mt-2">
-                                    <button id="editTopLayerBtn" 
-                                            class="bg-yellow-500 hover:bg-yellow-600 text-white py-1 px-3 rounded text-sm">
-                                        ✏️ Edit Image
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="topLayerImagePlaceholder">
-                                <p class="text-white">📷 Click to upload top layer image (png)</p>
-                            </div>
-                        </div>
-                    </div>
+                    
                 </div>
 
                 <!-- Prompt -->
@@ -233,336 +216,12 @@
                 </div>
             </div>
         </div>
-    </div>
-
-    <!-- Image Editor Modal -->
-    <div id="editorModal" class="fixed inset-0 editor-modal hidden z-50 flex items-center justify-center p-4">
-        <div class="glass max-w-4xl w-full max-h-[90vh] overflow-auto">
-            <div class="p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-semibold text-white">Edit Top Layer Image</h3>
-                    <button id="closeEditorBtn" class="text-white hover:text-red-400 text-2xl">×</button>
-                </div>
-                
-                <!-- Toolbar -->
-                <div class="flex flex-wrap gap-2 mb-4 p-3 bg-white bg-opacity-10 rounded-lg">
-                    <button id="eraseTool" class="tool-button active px-3 py-2 rounded bg-white bg-opacity-20 text-white text-sm">
-                        🧽 Erase
-                    </button>
-                    <button id="paintTool" class="tool-button px-3 py-2 rounded bg-white bg-opacity-20 text-white text-sm">
-                        🖌️ Paint
-                    </button>
-                    <button id="restoreTool" class="tool-button px-3 py-2 rounded bg-white bg-opacity-20 text-white text-sm">
-                        🔄 Restore
-                    </button>
-                    <div class="flex items-center gap-2 ml-4">
-                        <label class="text-white text-sm">Size:</label>
-                        <input type="range" id="brushSize" min="1" max="50" value="10" class="w-20">
-                        <span id="brushSizeValue" class="text-white text-sm">10</span>
-                    </div>
-                    <div class="flex items-center gap-2 ml-4">
-                        <label class="text-white text-sm">Color:</label>
-                        <input type="color" id="paintColor" value="#ffffff" class="w-8 h-8 rounded">
-                    </div>
-                    <button id="undoBtn" class="tool-button px-3 py-2 rounded bg-white bg-opacity-20 text-white text-sm ml-4">
-                        ↶ Undo
-                    </button>
-                    <button id="redoBtn" class="tool-button px-3 py-2 rounded bg-white bg-opacity-20 text-white text-sm">
-                        ↷ Redo
-                    </button>
-                    <button id="clearAllBtn" class="tool-button px-3 py-2 rounded bg-red-500 text-white text-sm ml-4">
-                        🗑️ Clear All
-                    </button>
-                    <button id="restoreAllBtn" class="tool-button px-3 py-2 rounded bg-blue-500 text-white text-sm" onclick="restoreAll()">
-                        🔄 Restore All
-                    </button>
-                </div>
-                
-                <!-- Canvas Container -->
-                <div class="bg-white bg-opacity-10 rounded-lg p-4 text-center">
-                    <canvas id="editorCanvas" class="editor-canvas max-w-full h-auto"></canvas>
-                </div>
-                
-                <!-- Save/Cancel Buttons -->
-                <div class="flex gap-4 mt-4">
-                    <button id="saveEditsBtn" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-lg">
-                        ✅ Save Changes
-                    </button>
-                    <button id="cancelEditsBtn" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-3 px-4 rounded-lg">
-                        ❌ Cancel
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
+    </div>    
 
     <script>
-        // Global state
-        let currentJobs = new Set();
-        let isEditing = false;
-        let currentTool = 'erase';
-        let isDrawing = false;
-        let undoStack = [];
-        let redoStack = [];
         
-        // Editor variables
-        let editorCanvas, editorCtx;
-        let originalImageData;
         
-        // Initialize editor
-        function initEditor() {
-            editorCanvas = document.getElementById('editorCanvas');
-            editorCtx = editorCanvas.getContext('2d');
-            
-            // Tool selection
-            document.getElementById('eraseTool').addEventListener('click', () => setTool('erase'));
-            document.getElementById('paintTool').addEventListener('click', () => setTool('paint'));
-            document.getElementById('restoreTool').addEventListener('click', () => setTool('restore'));
-            
-            // Brush size
-            document.getElementById('brushSize').addEventListener('input', (e) => {
-                document.getElementById('brushSizeValue').textContent = e.target.value;
-            });
-            
-            // Canvas events
-            editorCanvas.addEventListener('mousedown', startDrawing);
-            editorCanvas.addEventListener('mousemove', draw);
-            editorCanvas.addEventListener('mouseup', stopDrawing);
-            editorCanvas.addEventListener('mouseout', stopDrawing);
-            
-            // Touch events for mobile
-            editorCanvas.addEventListener('touchstart', handleTouch);
-            editorCanvas.addEventListener('touchmove', handleTouch);
-            editorCanvas.addEventListener('touchend', stopDrawing);
-            
-            // Buttons
-            document.getElementById('undoBtn').addEventListener('click', undo);
-            document.getElementById('redoBtn').addEventListener('click', redo);
-            document.getElementById('clearAllBtn').addEventListener('click', clearAll);
-            document.getElementById('saveEditsBtn').addEventListener('click', saveEdits);
-            document.getElementById('cancelEditsBtn').addEventListener('click', cancelEdits);
-            document.getElementById('closeEditorBtn').addEventListener('click', closeEditor);
-        }
-        
-        function setTool(tool) {
-            currentTool = tool;
-            document.querySelectorAll('.tool-button').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(tool + 'Tool').classList.add('active');
-            
-            // Update cursor based on tool
-            if (tool === 'erase') {
-                editorCanvas.style.cursor = 'crosshair';
-            } else if (tool === 'paint') {
-                editorCanvas.style.cursor = 'crosshair';
-            } else if (tool === 'restore') {
-                editorCanvas.style.cursor = 'copy';
-            }
-        }
-        
-        function openEditor() {
-            const topLayerImg = document.getElementById('topLayerImageImg');
-            if (!topLayerImg.src) return;
-            
-            isEditing = true;
-            document.getElementById('editorModal').classList.remove('hidden');
-            
-            // Load image to canvas
-            const img = new Image();
-            img.onload = function() {
-                // Set canvas size to match image
-                editorCanvas.width = img.width;
-                editorCanvas.height = img.height;
-                
-                // Draw image on canvas
-                editorCtx.drawImage(img, 0, 0);
-                
-                // Save original state for restore functionality
-                originalImageData = editorCtx.getImageData(0, 0, editorCanvas.width, editorCanvas.height);
-                saveState();
-            };
-            img.src = topLayerImg.src;
-        }
-        
-        function closeEditor() {
-            document.getElementById('editorModal').classList.add('hidden');
-            isEditing = false;
-            undoStack = [];
-            redoStack = [];
-        }
-        
-        function saveState() {
-            undoStack.push(editorCtx.getImageData(0, 0, editorCanvas.width, editorCanvas.height));
-            if (undoStack.length > 50) undoStack.shift(); // Limit undo stack
-            redoStack = []; // Clear redo stack when new action is performed
-        }
-        
-        function undo() {
-            if (undoStack.length > 1) {
-                redoStack.push(undoStack.pop());
-                const prevState = undoStack[undoStack.length - 1];
-                editorCtx.putImageData(prevState, 0, 0);
-            }
-        }
-        
-        function redo() {
-            if (redoStack.length > 0) {
-                const nextState = redoStack.pop();
-                undoStack.push(nextState);
-                editorCtx.putImageData(nextState, 0, 0);
-            }
-        }
-        
-        function clearAll() {
-            if (confirm('Are you sure you want to clear the entire image?')) {
-                editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
-                saveState();
-            }
-        }
-        
-        function restoreAll() {
-            if (confirm('Are you sure you want to restore the entire image to original?')) {
-                editorCtx.putImageData(originalImageData, 0, 0);
-                saveState();
-            }
-        }
-        
-        function getMousePos(e) {
-            const rect = editorCanvas.getBoundingClientRect();
-            const scaleX = editorCanvas.width / rect.width;
-            const scaleY = editorCanvas.height / rect.height;
-            
-            return {
-                x: (e.clientX - rect.left) * scaleX,
-                y: (e.clientY - rect.top) * scaleY
-            };
-        }
-        
-        function handleTouch(e) {
-            e.preventDefault();
-            const touch = e.touches[0];
-            const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
-            editorCanvas.dispatchEvent(mouseEvent);
-        }
-        
-        function startDrawing(e) {
-            isDrawing = true;
-            const pos = getMousePos(e);
-            
-            const brushSize = parseInt(document.getElementById('brushSize').value);
-            
-            if (currentTool === 'erase') {
-                editorCtx.globalCompositeOperation = 'destination-out';
-                editorCtx.lineWidth = brushSize;
-                editorCtx.lineCap = 'round';
-                editorCtx.lineJoin = 'round';
-                editorCtx.beginPath();
-                editorCtx.moveTo(pos.x, pos.y);
-            } else if (currentTool === 'paint') {
-                editorCtx.globalCompositeOperation = 'source-over';
-                editorCtx.strokeStyle = document.getElementById('paintColor').value;
-                editorCtx.lineWidth = brushSize;
-                editorCtx.lineCap = 'round';
-                editorCtx.lineJoin = 'round';
-                editorCtx.beginPath();
-                editorCtx.moveTo(pos.x, pos.y);
-            } else if (currentTool === 'restore') {
-                // For restore, we'll use a circular brush to restore original content
-                restoreAtPosition(pos.x, pos.y, brushSize);
-            }
-        }
-        
-        function draw(e) {
-            if (!isDrawing) return;
-            
-            const pos = getMousePos(e);
-            
-            if (currentTool === 'erase' || currentTool === 'paint') {
-                editorCtx.lineTo(pos.x, pos.y);
-                editorCtx.stroke();
-            } else if (currentTool === 'restore') {
-                const brushSize = parseInt(document.getElementById('brushSize').value);
-                restoreAtPosition(pos.x, pos.y, brushSize);
-            }
-        }
-        
-        function restoreAtPosition(x, y, radius) {
-            // Save current composite operation
-            const currentOperation = editorCtx.globalCompositeOperation;
-            
-            // Create a circular clipping path
-            editorCtx.save();
-            editorCtx.beginPath();
-            editorCtx.arc(x, y, radius / 2, 0, 2 * Math.PI);
-            editorCtx.clip();
-            
-            // Calculate the area to restore from original image
-            const startX = Math.max(0, Math.floor(x - radius / 2));
-            const startY = Math.max(0, Math.floor(y - radius / 2));
-            const endX = Math.min(editorCanvas.width, Math.ceil(x + radius / 2));
-            const endY = Math.min(editorCanvas.height, Math.ceil(y + radius / 2));
-            
-            const width = endX - startX;
-            const height = endY - startY;
-            
-            if (width > 0 && height > 0) {
-                // Get the original image data for this area
-                const originalData = editorCtx.createImageData(width, height);
-                const sourceData = originalImageData.data;
-                const canvasWidth = originalImageData.width;
-                
-                // Copy pixels from original image
-                for (let py = 0; py < height; py++) {
-                    for (let px = 0; px < width; px++) {
-                        const sourceIndex = ((startY + py) * canvasWidth + (startX + px)) * 4;
-                        const targetIndex = (py * width + px) * 4;
-                        
-                        originalData.data[targetIndex] = sourceData[sourceIndex];         // R
-                        originalData.data[targetIndex + 1] = sourceData[sourceIndex + 1]; // G
-                        originalData.data[targetIndex + 2] = sourceData[sourceIndex + 2]; // B
-                        originalData.data[targetIndex + 3] = sourceData[sourceIndex + 3]; // A
-                    }
-                }
-                
-                // Put the original image data back
-                editorCtx.putImageData(originalData, startX, startY);
-            }
-            
-            editorCtx.restore();
-        }
-        
-        function stopDrawing() {
-            if (isDrawing) {
-                isDrawing = false;
-                saveState();
-            }
-        }
-        
-        function saveEdits() {
-            // Convert canvas to blob and update the image
-            editorCanvas.toBlob((blob) => {
-                const url = URL.createObjectURL(blob);
-                document.getElementById('topLayerImageImg').src = url;
-                
-                // Create a new File object to replace the original
-                const file = new File([blob], 'edited_toplayer.png', { type: 'image/png' });
-                
-                // Update the file input (we'll store the file reference)
-                const fileInput = document.getElementById('topLayerImage');
-                // Create a new FileList-like object
-                const dt = new DataTransfer();
-                dt.items.add(file);
-                fileInput.files = dt.files;
-                
-                closeEditor();
-            }, 'image/png');
-        }
-        
-        function cancelEdits() {
-            closeEditor();
-        }
+       
         
         // Setup file input for base image
         const baseInput = document.getElementById('baseImage');
@@ -573,10 +232,6 @@
         const posePreview = document.getElementById('poseImagePreview');
         const posePlaceholder = document.getElementById('poseImagePlaceholder');
         const poseImg = document.getElementById('poseImageImg');
-        const topLayerInput = document.getElementById('topLayerImage');
-        const topLayerPreview = document.getElementById('topLayerImagePreview');
-        const topLayerPlaceholder = document.getElementById('topLayerImagePlaceholder');
-        const topLayerImg = document.getElementById('topLayerImageImg');
         
         baseInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
@@ -604,27 +259,14 @@
             }
         });
         
-        topLayerInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    topLayerImg.src = e.target.result;
-                    topLayerPreview.classList.remove('hidden');
-                    topLayerPlaceholder.classList.add('hidden');
-                };
-                reader.readAsDataURL(file);
-            }
-        });
+        
         
         // Edit button event listener
-        document.getElementById('editTopLayerBtn').addEventListener('click', openEditor);
         
         // Generate button event listener
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const baseImageFile = document.getElementById('baseImage').files[0];
             const poseImageFile = document.getElementById('poseImage').files[0];
-            const topLayerImageFile = document.getElementById('topLayerImage').files[0];
             const prompt = document.getElementById('Prompt').value;
             
             if (!baseImageFile) {
@@ -636,10 +278,6 @@
                 alert('Please upload a pose image');
                 return;
             }
-            if (!topLayerImageFile) {
-                alert('Please upload a top layer image');
-                return;
-            }
            
             if (!prompt.trim()) {
                 alert('Please enter a prompt');
@@ -649,7 +287,6 @@
             const formData = new FormData();
             formData.append('base_image', baseImageFile);
             formData.append('pose_image', poseImageFile);
-            formData.append('top_layer_image', topLayerImageFile);
             formData.append('prompt', prompt);
             formData.append('ip_adapter_scale', document.getElementById('adapterScale').value);
             formData.append('strength', document.getElementById('Strength').value);
