@@ -263,7 +263,7 @@ def predict(imagex, mask,size):
 
 
 
-    image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask.resize((512, 512)), 'cpu')
+    image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask.resize((512, 512)), 'cuda')
     # Run the model
     outputs = rmodel.run(None, {'image': image.numpy().astype(np.float32), 'mask': mask.numpy().astype(np.float32)})
 
@@ -287,26 +287,26 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     background = predict(pose_image, mask_img, pose_image.size)
 
-    # pose_info = pred_info(pose_image)
-    # face_info = pred_info(face_image)
+    pose_info = pred_info(pose_image)
+    face_info = pred_info(face_image)
 
 
-    # control_image = draw_kps(pose_image, pose_info['kps'])
-    # width, height = pose_image.size
+    control_image = draw_kps(pose_image, pose_info['kps'])
+    width, height = pose_image.size
     
-    # face_embed = np.array(face_info['embedding'])[None, ...]
-    # id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    # image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
-    #                          request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
-    # nobackground = bg_remove_pipe.process(image, type='rgba')
+    face_embed = np.array(face_info['embedding'])[None, ...]
+    id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
+                             request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
+    nobackground = bg_remove_pipe.process(image, type='rgba')
     filename = f"{job_id}_base.png"
-    # # create new PIL Image has size = top_layer_image
-    # # result_image = PIL.Image.alpha_composite(background, nobackground)    
+    # create new PIL Image has size = top_layer_image
+    result_image = PIL.Image.alpha_composite(background, nobackground.convert('RGBA'))    
 
     filepath = os.path.join(results_dir, filename)
-   
-    background.save(filepath)
-        
+
+    result_image.save(filepath)
+
     metadata = {
         "job_id": job_id,
         "type": "head_swap",
