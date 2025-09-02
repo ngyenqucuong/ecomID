@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from typing import Optional
 import facer
 from transparent_background import Remover
+import onnxruntime
 
 
 
@@ -39,14 +40,14 @@ insightface_app = None
 pipeline_swap = None
 face_parser = None
 bg_remove_pipe = None
+rmodel = None
 executor = ThreadPoolExecutor(max_workers=1)
-
 
 
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
@@ -71,9 +72,8 @@ def initialize_pipelines():
         face_parser = facer.face_parser('farl/lapa/448', device=device)
         bg_remove_pipe = Remover(jit=False)
 
-
-
-
+        sess_options = onnxruntime.SessionOptions()
+        rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
 
     except Exception as e:
         logger.error(f"Failed to initialize pipelines: {e}")
@@ -189,7 +189,91 @@ jobs = {}
 results_dir = "results"
 os.makedirs(results_dir, exist_ok=True)
 
+def get_image(image):
+    if isinstance(image, PIL.Image.Image):
+        img = np.array(image)
+    elif isinstance(image, np.ndarray):
+        img = image.copy()
+    else:
+        raise Exception("Input image should be either PIL Image or numpy array!")
 
+    if img.ndim == 3:
+        img = np.transpose(img, (2, 0, 1))  # chw
+    elif img.ndim == 2:
+        img = img[np.newaxis, ...]
+
+    assert img.ndim == 3
+
+    img = img.astype(np.float32) / 255
+    return img
+
+
+def ceil_modulo(x, mod):
+    if x % mod == 0:
+        return x
+    return (x // mod + 1) * mod
+
+
+def scale_image(img, factor, interpolation=cv2.INTER_AREA):
+    if img.shape[0] == 1:
+        img = img[0]
+    else:
+        img = np.transpose(img, (1, 2, 0))
+
+    img = cv2.resize(img, dsize=None, fx=factor, fy=factor, interpolation=interpolation)
+
+    if img.ndim == 2:
+        img = img[None, ...]
+    else:
+        img = np.transpose(img, (2, 0, 1))
+    return img
+
+
+def pad_img_to_modulo(img, mod):
+    channels, height, width = img.shape
+    out_height = ceil_modulo(height, mod)
+    out_width = ceil_modulo(width, mod)
+    return np.pad(
+        img,
+        ((0, 0), (0, out_height - height), (0, out_width - width)),
+        mode="symmetric",
+    )
+
+
+def prepare_img_and_mask(image, mask, device, pad_out_to_modulo=8, scale_factor=None):
+    out_image = get_image(image)
+    out_mask = get_image(mask)
+
+    if scale_factor is not None:
+        out_image = scale_image(out_image, scale_factor)
+        out_mask = scale_image(out_mask, scale_factor, interpolation=cv2.INTER_NEAREST)
+
+    if pad_out_to_modulo is not None and pad_out_to_modulo > 1:
+        out_image = pad_img_to_modulo(out_image, pad_out_to_modulo)
+        out_mask = pad_img_to_modulo(out_mask, pad_out_to_modulo)
+
+    out_image = torch.from_numpy(out_image).unsqueeze(0).to(device)
+    out_mask = torch.from_numpy(out_mask).unsqueeze(0).to(device)
+
+    out_mask = (out_mask > 0) * 1
+
+    return out_image, out_mask
+
+def predict(imagex, mask):
+
+
+
+    image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask.resize((512, 512)), 'cpu')
+    # Run the model
+    outputs = rmodel.run(None, {'image': image.numpy().astype(np.float32), 'mask': mask.numpy().astype(np.float32)})
+
+    output = outputs[0][0]
+    # Postprocess the outputs
+    output = output.transpose(1, 2, 0)
+    output = output.astype(np.uint8)
+    output = PIL.Image.fromarray(output)
+    output = output.resize(imagex.size)
+    return output
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
@@ -203,6 +287,9 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
         # If output is a numpy array, convert to PIL Image
         mask_img = PIL.Image.fromarray((mask_img_pose * 255).astype(np.uint8), mode='L')
 
+    background = predict(pose_image, mask_img)
+
+
     control_image = draw_kps(pose_image, pose_info['kps'])
     width, height = pose_image.size
     pose_info = pred_info(pose_image)
@@ -212,18 +299,15 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
-    # output = bg_remove_pipe.process(image, type='rgba')
+    nobackground = bg_remove_pipe.process(image, type='rgba')
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    # new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
     # x,y,_,_ = bbox
-    # new_generated_image.paste(image, (x, y))
-    # result_image = PIL.Image.new("RGBA", top_layer_image.size)
-    # result_image = PIL.Image.alpha_composite(new_generated_image, top_layer_image)    
+    result_image = PIL.Image.alpha_composite(background, nobackground)    
 
     filepath = os.path.join(results_dir, filename)
    
-    image.save(filepath)
+    result_image.save(filepath)
         
     metadata = {
         "job_id": job_id,

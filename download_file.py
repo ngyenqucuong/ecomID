@@ -57,3 +57,4 @@ if not os.path.exists("./checkpoints/"):
         local_dir="./checkpoints"
     )
 
+os.system("wget https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx")
