@@ -273,7 +273,7 @@ def predict(imagex, mask):
     output = output.astype(np.uint8)
     output = PIL.Image.fromarray(output)
     output = output.resize(imagex.size)
-    return output
+    return output.convert('RGBA')
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):    
     # from bbox crop pose_image
