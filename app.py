@@ -50,7 +50,6 @@ face_parser = None
 bg_remove_pipe = None
 rmodel = None
 executor = ThreadPoolExecutor(max_workers=1)
-face_helper = None
 
 upsampler = None
 
@@ -91,7 +90,7 @@ def set_realesrgan():
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel,face_helper,upsampler
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel,upsampler
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
@@ -118,15 +117,7 @@ def initialize_pipelines():
 
         sess_options = onnxruntime.SessionOptions()
         rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
-        face_helper = FaceRestoreHelper(
-            1,
-            face_size=512,
-            crop_ratio=(1, 1),
-            det_model="retinaface_resnet50",
-            save_ext="png",
-            use_parse=True,
-            device=device,
-        )
+        
         upsampler = set_realesrgan()
 
     except Exception as e:
@@ -393,7 +384,15 @@ def prepareMask(pose_image, face_info,width,height):
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):    
     # from bbox crop pose_image
-    
+    face_helper = FaceRestoreHelper(
+            1,
+            face_size=512,
+            crop_ratio=(1, 1),
+            det_model="retinaface_resnet50",
+            save_ext="png",
+            use_parse=True,
+            device=device,
+        )
    
     width, height = pose_image.size
     background = predict(pose_image, (width, height))
