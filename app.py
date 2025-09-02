@@ -119,7 +119,7 @@ def initialize_pipelines():
         sess_options = onnxruntime.SessionOptions()
         rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
         face_helper = FaceRestoreHelper(
-            upscale=1,
+            1,
             face_size=512,
             crop_ratio=(1, 1),
             det_model="retinaface_resnet50",
