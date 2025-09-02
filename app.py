@@ -416,7 +416,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     # create new PIL Image has size = top_layer_image
     result_image = PIL.Image.alpha_composite(background, new_img)
 
-    img = cv2.cvtColor(np.array(result_image), cv2.COLOR_RGB2BGR)
+    img = cv2.cvtColor(np.array(result_image.convert('RGB')), cv2.COLOR_RGB2BGR)
     face_helper.read_image(img)
     # get face landmarks for each face
     face_helper.get_face_landmarks_5(
