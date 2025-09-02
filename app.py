@@ -23,8 +23,8 @@ import json
 from pydantic import BaseModel
 from typing import Optional
 import facer
-from transformers import pipeline
 import mediapipe as mp
+from transparent_background import Remover
 
 
 
@@ -40,104 +40,14 @@ insightface_app = None
 pipeline_swap = None
 face_parser = None
 bg_remove_pipe = None
-segmenter = None
 executor = ThreadPoolExecutor(max_workers=1)
-
-class HeadSegmentation:
-    def __init__(self, model_path='selfie_multiclass_256x256.tflite'):
-        """Initialize MediaPipe ImageSegmenter with multi-class selfie model."""
-        try:
-            if not os.path.exists(model_path):
-                print(f"Downloading model to {model_path}...")
-                model_path = self.download_model(model_path)
-            self.options = mp.tasks.vision.ImageSegmenterOptions(
-                base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
-                running_mode=mp.tasks.vision.RunningMode.IMAGE,
-                output_category_mask=True
-            )
-            self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(self.options)
-        except Exception as e:
-            raise RuntimeError(f"Failed to initialize segmenter: {str(e)}")
-    def download_model(self, model_path):
-        """Download the model from Hugging Face and verify its integrity."""
-        repo_id = "yolain/selfie_multiclass_256x256"
-        filename = "selfie_multiclass_256x256.tflite"
-
-        # Download the file
-        downloaded_path = hf_hub_download(repo_id=repo_id, filename=filename, local_dir='./')
-        return downloaded_path
-    def extract_head(self, image_input):
-        """Extract head (hair + face-skin) from a PIL Image, returning RGBA PIL Image."""
-        if not isinstance(image_input, PIL.Image.Image):
-            raise ValueError("Input must be a PIL Image object")
-        
-        try:
-            # Handle alpha channel in input
-            if image_input.mode == 'RGBA':
-                print("Warning: Input image has alpha channel, converting to RGB")
-            
-            # Keep everything in RGB for consistency
-            image_rgb = np.array(image_input.convert('RGB'))
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
-            
-            # Run segmentation
-            segmentation_result = self.segmenter.segment(mp_image)
-            category_mask = segmentation_result.category_mask
-            if category_mask is None:
-                raise ValueError("Segmentation failed: No category mask returned")
-            
-            # Extract category mask
-            mask = category_mask.numpy_view()
-            
-            # Categories based on selfie_multiclass_256x256: 1=hair, 3=face-skin
-            head_categories = [1, 3]
-            binary_mask = np.zeros_like(mask, dtype=np.uint8)
-            for cat in head_categories:
-                binary_mask[mask == cat] = 255
-            
-            # Resize mask if needed
-            if binary_mask.shape != image_rgb.shape[:2]:
-                binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
-                                    interpolation=cv2.INTER_NEAREST)
-                        
-            extracted_image_rgb = image_rgb.copy()
-            extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
-            
-            # Create RGBA image
-            extracted_image_rgba = np.zeros((*image_rgb.shape[:2], 4), dtype=np.uint8)
-            extracted_image_rgba[:, :, :3] = extracted_image_rgb  # RGB channels
-            extracted_image_rgba[:, :, 3] = binary_mask  # Alpha channel
-            
-            extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
-
-
-            # Calculate bounding box
-            coords = np.where(binary_mask > 0)
-            if len(coords[0]) > 0:
-                y_min, y_max = coords[0].min(), coords[0].max()
-                x_min, x_max = coords[1].min(), coords[1].max()
-                # PIL crop expects (left, top, right, bottom)
-                bbox = (x_min, y_min, x_max + 1, y_max + 1)
-            else:
-                bbox = (0, 0, 0, 0)
-
-            mask_pil = PIL.Image.fromarray(binary_mask, 'L').convert('RGB')
-
-            return extracted_pil,bbox,mask_pil
-
-        except Exception as e:
-            raise RuntimeError(f"Segmentation error: {str(e)}")
-
-    def close(self):
-        """Clean up segmenter resources."""
-        self.segmenter.close()
 
 
 
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,segmenter
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
@@ -160,8 +70,8 @@ def initialize_pipelines():
         attention.ORTHO_v2 = True
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
-        bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True, device='cuda')
-        segmenter = HeadSegmentation()
+        bg_remove_pipe = Remover(jit=False)
+
 
 
 
@@ -284,23 +194,26 @@ os.makedirs(results_dir, exist_ok=True)
 
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):
     print("Đang cắt vùng tóc và mặt...")
-    head_img, bbox ,mask_head= segmenter.extract_head(
-        pose_image, 
-    )
+    
     # from bbox crop pose_image
-    # top_layer_image = make_head_transparent(pose_image, head_img)
-    # crop_pose_image = pose_image.crop(bbox)
-    mask_img = mask_head.crop(bbox)    
+    mask_img_pose = bg_remove_pipe.process(pose_image, type='map')
+    if isinstance(mask_img_pose, PIL.Image.Image):
+        # If output is already a PIL Image, convert to grayscale
+        mask_img = mask_img_pose.convert('L')
+    else:
+        # If output is a numpy array, convert to PIL Image
+        mask_img = PIL.Image.fromarray((mask_img_pose * 255).astype(np.uint8), mode='L')
 
-    # width, height = crop_pose_image.size
+    control_image = draw_kps(pose_image, pose_info['kps'])
     width, height = pose_image.size
     pose_info = pred_info(pose_image)
-    control_image = draw_kps(pose_image, pose_info['kps'])
+    
     face_info = pred_info(face_image)
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
+    output = bg_remove_pipe.process(image, type='rgba')
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     # new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
@@ -311,7 +224,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     filepath = os.path.join(results_dir, filename)
    
-    image.save(filepath)
+    output.save(filepath)
         
     metadata = {
         "job_id": job_id,
