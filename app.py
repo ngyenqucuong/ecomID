@@ -275,9 +275,7 @@ def predict(imagex, mask):
     output = output.resize(imagex.size)
     return output
 
-async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):
-    print("Đang cắt vùng tóc và mặt...")
-    
+async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):    
     # from bbox crop pose_image
     mask_img_pose = bg_remove_pipe.process(pose_image, type='map')
     if isinstance(mask_img_pose, PIL.Image.Image):
@@ -289,12 +287,13 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     background = predict(pose_image, mask_img)
 
+    pose_info = pred_info(pose_image)
+    face_info = pred_info(face_image)
+
 
     control_image = draw_kps(pose_image, pose_info['kps'])
     width, height = pose_image.size
-    pose_info = pred_info(pose_image)
     
-    face_info = pred_info(face_image)
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
