@@ -259,9 +259,15 @@ def prepare_img_and_mask(image, mask, device, pad_out_to_modulo=8, scale_factor=
 
     return out_image, out_mask
 
-def predict(imagex, mask,size):
+def predict(imagex,size):
 
-
+    mask = bg_remove_pipe.process(imagex, type='map')
+    if isinstance(mask, PIL.Image.Image):
+    # If output is already a PIL Image, convert to grayscale
+        mask = mask.convert('L')
+    else:
+        # If output is a numpy array, convert to PIL Image
+        mask = PIL.Image.fromarray((mask * 255).astype(np.uint8), mode='L')
 
     image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask.resize((512, 512)), 'cpu')
     # Run the model
@@ -275,21 +281,75 @@ def predict(imagex, mask,size):
     output = output.resize(size)
     return output.convert('RGBA')
 
+
+def pred_face_mask(img, face_info):
+    points = []
+    rects = []
+    scores = []
+    image_ids = []
+    # for i in range(len(detected_faces)):
+
+    points.append(face_info['kps'])
+    rects.append(face_info['bbox'])
+    scores.append(face_info['det_score'])
+    image_ids.append(0)
+
+    face_info = {}
+    face_info['points'] = torch.tensor(points).to(device)
+    face_info['rects'] = torch.tensor(rects).to(device)
+    face_info['scores'] = torch.tensor(scores).to(device)
+    face_info['image_ids'] = torch.tensor(image_ids).to(device)
+
+    img = np.array(img)
+    reordered_img = torch.from_numpy(img).unsqueeze(0).permute(0, 3, 1, 2).to(device=device)
+
+    with torch.inference_mode():
+        faces = face_parser(reordered_img, face_info)
+
+    seg_logits = faces['seg']['logits']
+    seg_probs = seg_logits.softmax(dim=1)  # nfaces x nclasses x h x w
+
+    n_classes = seg_probs.size(1)
+    vis_seg_probs = seg_probs.argmax(dim=1).float() / n_classes * 255
+    vis_img = vis_seg_probs.sum(0, keepdim=True)
+
+    face_mask = vis_img != 0
+
+    bbox = face_info['rects'][0]
+
+    face_mask = face_mask.unsqueeze(0)
+    face_mask = face_mask.squeeze().int()*255
+    face_mask = face_mask.cpu().numpy()
+
+    return face_mask
+
+
+def prepareMask(pose_image, face_info,width,height):
+
+    mask = np.zeros([height, width, 3])
+    face_mask = pred_face_mask(pose_image, face_info)
+    mask[face_mask>0] = 255
+    face_mask = mask
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
+    face_mask = cv2.dilate(face_mask, kernel, iterations=2)
+    face_mask = PIL.Image.fromarray(face_mask.astype(np.uint8))
+
+    # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
+    return face_mask
+
+
+
 async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):    
     # from bbox crop pose_image
-    mask_img_pose = bg_remove_pipe.process(pose_image, type='map')
-    if isinstance(mask_img_pose, PIL.Image.Image):
-        # If output is already a PIL Image, convert to grayscale
-        mask_img = mask_img_pose.convert('L')
-    else:
-        # If output is a numpy array, convert to PIL Image
-        mask_img = PIL.Image.fromarray((mask_img_pose * 255).astype(np.uint8), mode='L')
+    
+   
     width, height = pose_image.size
-    background = predict(pose_image, mask_img, (width, height))
+    background = predict(pose_image, (width, height))
 
     pose_info = pred_info(pose_image)
     face_info = pred_info(face_image)
-
+    mask_img = prepareMask(pose_image, pose_info,width,height)
 
     control_image = draw_kps(pose_image, pose_info['kps'])
     width, height = pose_image.size
