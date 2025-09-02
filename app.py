@@ -70,7 +70,7 @@ def initialize_pipelines():
         attention.ORTHO_v2 = True
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
-        bg_remove_pipe = Remover(jit=False)
+        bg_remove_pipe = Remover()
 
         sess_options = onnxruntime.SessionOptions()
         rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
@@ -284,8 +284,8 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     else:
         # If output is a numpy array, convert to PIL Image
         mask_img = PIL.Image.fromarray((mask_img_pose * 255).astype(np.uint8), mode='L')
-
-    background = predict(pose_image, mask_img, pose_image.size)
+    width, height = pose_image.size
+    background = predict(pose_image, mask_img, (width, height))
 
     pose_info = pred_info(pose_image)
     face_info = pred_info(face_image)
@@ -299,6 +299,8 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     nobackground = bg_remove_pipe.process(image, type='rgba')
+    nowith, noheight = nobackground.size
+    print(nowith, noheight)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     result_image = PIL.Image.alpha_composite(background, nobackground.convert('RGBA'))    
