@@ -451,7 +451,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
         draw_box=False,
         face_upsampler=upsampler,
     )
-    restored_img = cv2.cvtColor(restored_img, cv2.COLOR_BGR2RGB)
+    # restored_img = cv2.cvtColor(restored_img, cv2.COLOR_BGR2RGB)
     # PIL Image
     filepath = os.path.join(results_dir, filename)
     imwrite(restored_img, str(filepath))
