@@ -449,7 +449,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     restored_img = face_helper.paste_faces_to_input_image(
         upsample_img=bg_img,
         draw_box=False,
-        face_upsampler=True,
+        face_upsampler=upsampler,
     )
     restored_img = cv2.cvtColor(restored_img, cv2.COLOR_BGR2RGB)
     # PIL Image
