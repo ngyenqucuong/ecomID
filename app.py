@@ -25,7 +25,15 @@ from typing import Optional
 import facer
 from transparent_background import Remover
 import onnxruntime
+from basicsr.utils import img2tensor, tensor2img,imwrite
+from torchvision.transforms.functional import normalize
+from basicsr.archs.rrdbnet_arch import RRDBNet
+from basicsr.utils.realesrgan_utils import RealESRGANer
 
+
+from basicsr.utils.registry import ARCH_REGISTRY
+
+from facelib.utils.face_restoration_helper import FaceRestoreHelper
 
 
 
@@ -42,12 +50,48 @@ face_parser = None
 bg_remove_pipe = None
 rmodel = None
 executor = ThreadPoolExecutor(max_workers=1)
+face_helper = None
 
+upsampler = None
+
+codeformer_net = ARCH_REGISTRY.get("CodeFormer")(
+    dim_embd=512,
+    codebook_size=1024,
+    n_head=8,
+    n_layers=9,
+    connect_list=["32", "64", "128", "256"],
+).to(device)
+ckpt_path = "CodeFormer/weights/CodeFormer/codeformer.pth"
+checkpoint = torch.load(ckpt_path)["params_ema"]
+codeformer_net.load_state_dict(checkpoint)
+codeformer_net.eval()
+
+
+def set_realesrgan():
+    half = True if torch.cuda.is_available() else False
+    model = RRDBNet(
+        num_in_ch=3,
+        num_out_ch=3,
+        num_feat=64,
+        num_block=23,
+        num_grow_ch=32,
+        scale=2,
+    )
+    upsampler = RealESRGANer(
+        scale=2,
+        model_path="CodeFormer/weights/realesrgan/RealESRGAN_x2plus.pth",
+        model=model,
+        tile=400,
+        tile_pad=40,
+        pre_pad=0,
+        half=half,
+    )
+    return upsampler
 
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel,face_helper,upsampler
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
@@ -74,6 +118,16 @@ def initialize_pipelines():
 
         sess_options = onnxruntime.SessionOptions()
         rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
+        face_helper = FaceRestoreHelper(
+            upscale=1,
+            face_size=512,
+            crop_ratio=(1, 1),
+            det_model="retinaface_resnet50",
+            save_ext="png",
+            use_parse=True,
+            device=device,
+        )
+        upsampler = set_realesrgan()
 
     except Exception as e:
         logger.error(f"Failed to initialize pipelines: {e}")
@@ -314,9 +368,6 @@ def pred_face_mask(img, face_info):
     vis_img = vis_seg_probs.sum(0, keepdim=True)
 
     face_mask = vis_img != 0
-
-    bbox = face_info['rects'][0]
-
     face_mask = face_mask.unsqueeze(0)
     face_mask = face_mask.squeeze().int()*255
     face_mask = face_mask.cpu().numpy()
@@ -363,12 +414,47 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     new_img.paste(nobackground, (0, 0), nobackground)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    result_image = PIL.Image.alpha_composite(background, new_img)    
+    result_image = PIL.Image.alpha_composite(background, new_img)
 
+    img = cv2.cvtColor(np.array(result_image), cv2.COLOR_RGB2BGR)
+    face_helper.read_image(img)
+    # get face landmarks for each face
+    face_helper.get_face_landmarks_5(
+        only_center_face=True, resize=640, eye_dist_threshold=5
+    )
+
+    face_helper.align_warp_face()
+    for cropped_face in face_helper.cropped_faces:
+        # prepare data
+        cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
+        normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
+        cropped_face_t = cropped_face_t.unsqueeze(0).to(device)
+
+        try:
+            with torch.no_grad():
+                output = codeformer_net(
+                    cropped_face_t, w=0.5, adain=True
+                )[0]
+                restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
+            del output
+            torch.cuda.empty_cache()
+        except RuntimeError as error:
+            print(f"Failed inference for CodeFormer: {error}")
+            restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
+
+        restored_face = restored_face.astype("uint8")
+        face_helper.add_restored_face(restored_face, cropped_face)
+    bg_img = upsampler.enhance(img, outscale=1)[0]
+    face_helper.get_inverse_affine(None)
+    restored_img = face_helper.paste_faces_to_input_image(
+        upsample_img=bg_img,
+        draw_box=False,
+        face_upsampler=True,
+    )
+    restored_img = cv2.cvtColor(restored_img, cv2.COLOR_BGR2RGB)
+    # PIL Image
     filepath = os.path.join(results_dir, filename)
-
-    result_image.save(filepath)
-
+    imwrite(restored_img, str(filepath))
     metadata = {
         "job_id": job_id,
         "type": "head_swap",
