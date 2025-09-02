@@ -301,12 +301,11 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     nobackground = bg_remove_pipe.process(image, type='rgba')
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    # x,y,_,_ = bbox
-    result_image = PIL.Image.alpha_composite(background, nobackground)    
+    # result_image = PIL.Image.alpha_composite(background, nobackground)    
 
     filepath = os.path.join(results_dir, filename)
    
-    result_image.save(filepath)
+    nobackground.save(filepath)
         
     metadata = {
         "job_id": job_id,
