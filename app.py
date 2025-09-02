@@ -299,11 +299,11 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     nobackground = bg_remove_pipe.process(image, type='rgba')
-    nowith, noheight = nobackground.size
-    print(nowith, noheight)
+    new_img = PIL.Image.new("RGBA", (width, height))
+    new_img.paste(nobackground, (0, 0), nobackground)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    result_image = PIL.Image.alpha_composite(background, nobackground.convert('RGBA'))    
+    result_image = PIL.Image.alpha_composite(background, new_img)    
 
     filepath = os.path.join(results_dir, filename)
 
