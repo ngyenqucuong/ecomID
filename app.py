@@ -23,7 +23,6 @@ import json
 from pydantic import BaseModel
 from typing import Optional
 import facer
-import mediapipe as mp
 from transparent_background import Remover
 
 
@@ -213,7 +212,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
-    output = bg_remove_pipe.process(image, type='rgba')
+    # output = bg_remove_pipe.process(image, type='rgba')
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     # new_generated_image = PIL.Image.new("RGBA", top_layer_image.size)
@@ -224,7 +223,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     filepath = os.path.join(results_dir, filename)
    
-    output.save(filepath)
+    image.save(filepath)
         
     metadata = {
         "job_id": job_id,
