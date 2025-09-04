@@ -29,3 +29,4 @@ lpips
 tb-nightly
 apex
 huggingface_hub[cli]
+kornia

@@ -30,6 +30,7 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils.realesrgan_utils import RealESRGANer
 from transformers import AutoModelForImageSegmentation
 
+from torchvision import transforms
 
 from basicsr.utils.registry import ARCH_REGISTRY
 
@@ -306,10 +307,22 @@ def prepare_img_and_mask(image, mask, device, pad_out_to_modulo=8, scale_factor=
 
     return out_image, out_mask
 
+transform_image = transforms.Compose(
+    [
+        transforms.Resize((1024, 1024)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ]
+)
+
 def predict(imagex, size):
     # Fix: Handle RMBG-2.0 output format
-    result = bg_remove_pipe(imagex)
-    
+    input_images = transform_image(image).unsqueeze(0).to("cuda")
+    with torch.no_grad():
+        preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
+    pred = preds[0].squeeze()
+    pred_pil = transforms.ToPILImage()(pred)
+    result = pred_pil.resize(size)
     # RMBG-2.0 returns a PIL Image directly
     if isinstance(result, PIL.Image.Image):
         mask = result.convert('L')
@@ -422,7 +435,15 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     
     # Fix: Handle RMBG-2.0 output format for foreground extraction
-    bg_result = bg_remove_pipe(image)
+    image_size = image.size
+    input_images = transform_image(image).unsqueeze(0).to("cuda")
+    # Prediction
+    with torch.no_grad():
+        preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
+    pred = preds[0].squeeze()
+    pred_pil = transforms.ToPILImage()(pred)
+    bg_result = pred_pil.resize(image_size)
+    bg_result.putalpha(mask)
     
     if isinstance(bg_result, PIL.Image.Image):
         # RMBG-2.0 typically returns the image with background removed directly
