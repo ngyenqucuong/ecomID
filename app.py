@@ -465,24 +465,27 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
     image_size = image.size
     input_images = transform_image(image).unsqueeze(0).to("cuda")
     # Prediction
+    big_lena = cv2.resize(np.array(image), (width, height), interpolation=cv2.INTER_LANCZOS4)
     with torch.no_grad():
         preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
     pred = preds[0].squeeze()
     pred_pil = transforms.ToPILImage()(pred)
     mask = pred_pil.resize(image_size)
-    mask_array = np.array(mask)
+    image.putalpha(mask)
+    im  = np.array(image)
+    alpha_mask = im[:,:,3]
     # Apply Gaussian blur to soften edges
-    mask_soft = cv2.GaussianBlur(mask_array, (5, 5), 2)
+    color = im[:,:,0:3]
+
+    blurred_alpha = cv2.GaussianBlur(alpha_mask, ksize=None, sigmaX=7)
     # Apply morphological operations to smooth the edges
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask_soft = cv2.morphologyEx(mask_soft, cv2.MORPH_CLOSE, kernel)
-    mask_soft = cv2.morphologyEx(mask_soft, cv2.MORPH_OPEN, kernel)
-    
+    factor = np.float32(1/255) * blurred_alpha
+    factor = factor[..., None]
+    color = cv2.resize(big_lena, (width, height), interpolation=cv2.INTER_LANCZOS4)
+    with_new_alpha = np.dstack([color, blurred_alpha])
+
     # Convert back to PIL
-    mask_soft_pil = PIL.Image.fromarray(mask_soft, 'L')
-    image.putalpha(mask_soft_pil)
-    nobackground = soften_edges(image.convert('RGBA'), feather_radius=8, opacity_factor=0.85)
-    
+    nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
     
     new_img = PIL.Image.new("RGBA", (width, height))
     new_img.paste(nobackground, (0, 0), nobackground)
