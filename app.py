@@ -23,12 +23,12 @@ import json
 from pydantic import BaseModel
 from typing import Optional
 import facer
-from transparent_background import Remover
 import onnxruntime
 from basicsr.utils import img2tensor, tensor2img,imwrite
 from torchvision.transforms.functional import normalize
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils.realesrgan_utils import RealESRGANer
+from transformers import pipeline
 
 
 from basicsr.utils.registry import ARCH_REGISTRY
@@ -113,7 +113,7 @@ def initialize_pipelines():
         attention.ORTHO_v2 = True
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
-        bg_remove_pipe = Remover()
+        bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-2.0", trust_remote_code=True, device='cuda')
 
         sess_options = onnxruntime.SessionOptions()
         rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
@@ -304,15 +304,25 @@ def prepare_img_and_mask(image, mask, device, pad_out_to_modulo=8, scale_factor=
 
     return out_image, out_mask
 
-def predict(imagex,size):
-
-    mask = bg_remove_pipe.process(imagex, type='map')
-    if isinstance(mask, PIL.Image.Image):
-    # If output is already a PIL Image, convert to grayscale
-        mask = mask.convert('L')
+def predict(imagex, size):
+    # Fix: Handle RMBG-2.0 output format
+    result = bg_remove_pipe(imagex)
+    
+    # RMBG-2.0 returns a PIL Image directly
+    if isinstance(result, PIL.Image.Image):
+        mask = result.convert('L')
+    elif isinstance(result, list) and len(result) > 0:
+        # If it returns a list, get the first item
+        mask_item = result[0]
+        if isinstance(mask_item, dict) and 'mask' in mask_item:
+            mask = mask_item['mask'].convert('L')
+        elif hasattr(mask_item, 'convert'):
+            mask = mask_item.convert('L')
+        else:
+            mask = PIL.Image.fromarray((mask_item * 255).astype(np.uint8), mode='L')
     else:
-        # If output is a numpy array, convert to PIL Image
-        mask = PIL.Image.fromarray((mask * 255).astype(np.uint8), mode='L')
+        # Fallback
+        mask = PIL.Image.fromarray((result * 255).astype(np.uint8), mode='L')
 
     image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask.resize((512, 512)), 'cpu')
     # Run the model
@@ -382,7 +392,7 @@ def prepareMask(pose_image, face_info,width,height):
 
 
 
-async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.Image.Image,request: Img2ImgRequest):    
+async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.Image.Image, request: Img2ImgRequest):    
     # from bbox crop pose_image
     face_helper = FaceRestoreHelper(
             1,
@@ -399,7 +409,7 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
 
     pose_info = pred_info(pose_image)
     face_info = pred_info(face_image)
-    mask_img = prepareMask(pose_image, pose_info,width,height)
+    mask_img = prepareMask(pose_image, pose_info, width, height)
 
     control_image = draw_kps(pose_image, pose_info['kps'])
     width, height = pose_image.size
@@ -408,7 +418,34 @@ async def gen_img2img(job_id: str, face_image : PIL.Image.Image,pose_image: PIL.
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
     image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
-    nobackground = bg_remove_pipe.process(image, type='rgba')
+    
+    # Fix: Handle RMBG-2.0 output format for foreground extraction
+    bg_result = bg_remove_pipe(image)
+    
+    if isinstance(bg_result, PIL.Image.Image):
+        # RMBG-2.0 typically returns the image with background removed directly
+        nobackground = bg_result.convert('RGBA')
+    elif isinstance(bg_result, list) and len(bg_result) > 0:
+        # If it returns a list, handle appropriately
+        result_item = bg_result[0]
+        if isinstance(result_item, dict):
+            if 'image' in result_item:
+                nobackground = result_item['image'].convert('RGBA')
+            elif 'mask' in result_item:
+                # Apply mask to original image
+                mask = result_item['mask'].convert('L')
+                nobackground = image.copy().convert('RGBA')
+                nobackground.putalpha(mask)
+            else:
+                nobackground = image.convert('RGBA')
+        elif hasattr(result_item, 'convert'):
+            nobackground = result_item.convert('RGBA')
+        else:
+            nobackground = image.convert('RGBA')
+    else:
+        # Fallback to original image
+        nobackground = image.convert('RGBA')
+    
     new_img = PIL.Image.new("RGBA", (width, height))
     new_img.paste(nobackground, (0, 0), nobackground)
     filename = f"{job_id}_base.png"
