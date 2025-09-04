@@ -27,3 +27,4 @@ tqdm
 yapf
 lpips
 tb-nightly
+huggingface_hub[cli]
