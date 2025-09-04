@@ -113,7 +113,8 @@ def initialize_pipelines():
         attention.ORTHO_v2 = True
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
-        bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-2.0", trust_remote_code=True, device='cuda')
+        bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-2.0", trust_remote_code=True)
+        bg_remove_pipe.to('cuda')
 
         sess_options = onnxruntime.SessionOptions()
         rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
