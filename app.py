@@ -391,7 +391,48 @@ def prepareMask(pose_image, face_info,width,height):
     # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
     return face_mask
 
+def soften_edges(image_rgba, feather_radius=10, opacity_factor=0.8):
+    """Soften the edges of an RGBA image by feathering the alpha channel"""
 
+    
+    # Convert to numpy array
+    img_array = np.array(image_rgba)
+    alpha_channel = img_array[:, :, 3]
+    
+    # Create a feathered mask
+    # First, blur the alpha channel
+    alpha_blurred = cv2.GaussianBlur(alpha_channel, (feather_radius*2+1, feather_radius*2+1), feather_radius/3)
+    
+    # Create edge detection to find borders
+    edges = cv2.Canny(alpha_channel, 50, 150)
+    edges_dilated = cv2.dilate(edges, np.ones((feather_radius//2, feather_radius//2), np.uint8), iterations=1)
+    
+    # Apply feathering effect near edges
+    edge_mask = edges_dilated > 0
+    alpha_channel[edge_mask] = (alpha_channel[edge_mask] * alpha_blurred[edge_mask] / 255.0 * opacity_factor).astype(np.uint8)
+    
+    # Apply overall edge softening
+    alpha_channel = cv2.GaussianBlur(alpha_channel, (3, 3), 1)
+    
+    # Update the alpha channel
+    img_array[:, :, 3] = alpha_channel
+    
+    return PIL.Image.fromarray(img_array, 'RGBA')
+
+def create_soft_composite(background, foreground, edge_feather=5):
+    """Create a soft composite with feathered edges"""
+    
+    # Soften the foreground edges
+    foreground_soft = soften_edges(foreground, feather_radius=edge_feather, opacity_factor=0.9)
+    
+    # Create an anti-aliased composite
+    if background.mode != 'RGBA':
+        background = background.convert('RGBA')
+    
+    # Use PIL's alpha_composite for smooth blending
+    result = PIL.Image.alpha_composite(background, foreground_soft)
+    
+    return result
 
 async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.Image.Image, request: Img2ImgRequest):    
     # from bbox crop pose_image
@@ -429,31 +470,19 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
     pred = preds[0].squeeze()
     pred_pil = transforms.ToPILImage()(pred)
     mask = pred_pil.resize(image_size)
-    image.putalpha(mask)
-
-    if isinstance(image, PIL.Image.Image):
-        # RMBG-2.0 typically returns the image with background removed directly
-        nobackground = image.convert('RGBA')
-    elif isinstance(image, list) and len(image) > 0:
-        # If it returns a list, handle appropriately
-        result_item = image[0]
-        if isinstance(result_item, dict):
-            if 'image' in result_item:
-                nobackground = result_item['image'].convert('RGBA')
-            elif 'mask' in result_item:
-                # Apply mask to original image
-                mask = result_item['mask'].convert('L')
-                nobackground = image.copy().convert('RGBA')
-                nobackground.putalpha(mask)
-            else:
-                nobackground = image.convert('RGBA')
-        elif hasattr(result_item, 'convert'):
-            nobackground = result_item.convert('RGBA')
-        else:
-            nobackground = image.convert('RGBA')
-    else:
-        # Fallback to original image
-        nobackground = image.convert('RGBA')
+    mask_array = np.array(mask)
+    # Apply Gaussian blur to soften edges
+    mask_soft = cv2.GaussianBlur(mask_array, (5, 5), 2)
+    # Apply morphological operations to smooth the edges
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask_soft = cv2.morphologyEx(mask_soft, cv2.MORPH_CLOSE, kernel)
+    mask_soft = cv2.morphologyEx(mask_soft, cv2.MORPH_OPEN, kernel)
+    
+    # Convert back to PIL
+    mask_soft_pil = PIL.Image.fromarray(mask_soft, 'L')
+    image.putalpha(mask_soft_pil)
+    nobackground = soften_edges(image.convert('RGBA'), feather_radius=8, opacity_factor=0.85)
+    
     
     new_img = PIL.Image.new("RGBA", (width, height))
     new_img.paste(nobackground, (0, 0), nobackground)
