@@ -473,14 +473,14 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
     mask = pred_pil.resize(image_size)
     image.putalpha(mask)
     im  = np.array(image)
-    (height, width) = im.shape[:2]
+    (height1, width1) = im.shape[:2]
     alpha_mask = im[:,:,3]
     # Apply Gaussian blur to soften edges
     blurred_alpha = cv2.GaussianBlur(alpha_mask, ksize=None, sigmaX=7)
     # Apply morphological operations to smooth the edges
     factor = np.float32(1/255) * blurred_alpha
     factor = factor[..., None]
-    color = cv2.resize(big_lena, (width, height), interpolation=cv2.INTER_LANCZOS4)
+    color = cv2.resize(big_lena, (width1, height1), interpolation=cv2.INTER_LANCZOS4)
     with_new_alpha = np.dstack([color, blurred_alpha])
 
     # Convert back to PIL
