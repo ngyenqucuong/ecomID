@@ -28,7 +28,7 @@ from basicsr.utils import img2tensor, tensor2img,imwrite
 from torchvision.transforms.functional import normalize
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils.realesrgan_utils import RealESRGANer
-from transformers import pipeline
+from transformers import AutoModelForImageSegmentation
 
 
 from basicsr.utils.registry import ARCH_REGISTRY
@@ -109,11 +109,12 @@ def initialize_pipelines():
         }
         pipeline_swap = EcomIDPipeline(args, insightface_app)
         attention.NUM_ZERO = 8
-        attention.ORTHO = False
         attention.ORTHO_v2 = True
         device = torch.device(f'cuda:{0}')
         face_parser = facer.face_parser('farl/lapa/448', device=device)
-        bg_remove_pipe = pipeline("image-segmentation", model="briaai/RMBG-2.0", trust_remote_code=True)
+        bg_remove_pipe = AutoModelForImageSegmentation.from_pretrained(
+            "briaai/RMBG-2.0", trust_remote_code=True
+        )
         bg_remove_pipe.to('cuda')
 
         sess_options = onnxruntime.SessionOptions()
