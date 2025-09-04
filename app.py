@@ -322,25 +322,11 @@ def predict(imagex, size):
         preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
     pred = preds[0].squeeze()
     pred_pil = transforms.ToPILImage()(pred)
-    result = pred_pil.resize(size)
-    # RMBG-2.0 returns a PIL Image directly
-    if isinstance(result, PIL.Image.Image):
-        mask = result.convert('L')
-    elif isinstance(result, list) and len(result) > 0:
-        # If it returns a list, get the first item
-        mask_item = result[0]
-        if isinstance(mask_item, dict) and 'mask' in mask_item:
-            mask = mask_item['mask'].convert('L')
-        elif hasattr(mask_item, 'convert'):
-            mask = mask_item.convert('L')
-        else:
-            mask = PIL.Image.fromarray((mask_item * 255).astype(np.uint8), mode='L')
-    else:
-        # Fallback
-        mask = PIL.Image.fromarray((result * 255).astype(np.uint8), mode='L')
+    mask_ = pred_pil.resize(size).convert('L')
 
-    image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask.resize((512, 512)), 'cpu')
+    image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask_.resize((512, 512)), 'cpu')
     # Run the model
+    
     outputs = rmodel.run(None, {'image': image.numpy().astype(np.float32), 'mask': mask.numpy().astype(np.float32)})
 
     output = outputs[0][0]
