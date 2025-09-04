@@ -317,7 +317,7 @@ transform_image = transforms.Compose(
 
 def predict(imagex, size):
     # Fix: Handle RMBG-2.0 output format
-    input_images = transform_image(image).unsqueeze(0).to("cuda")
+    input_images = transform_image(imagex).unsqueeze(0).to("cuda")
     with torch.no_grad():
         preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
     pred = preds[0].squeeze()
