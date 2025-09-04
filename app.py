@@ -442,15 +442,15 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
         preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
     pred = preds[0].squeeze()
     pred_pil = transforms.ToPILImage()(pred)
-    bg_result = pred_pil.resize(image_size)
-    bg_result.putalpha(mask)
-    
-    if isinstance(bg_result, PIL.Image.Image):
+    mask = pred_pil.resize(image_size)
+    image.putalpha(mask)
+
+    if isinstance(image, PIL.Image.Image):
         # RMBG-2.0 typically returns the image with background removed directly
-        nobackground = bg_result.convert('RGBA')
-    elif isinstance(bg_result, list) and len(bg_result) > 0:
+        nobackground = image.convert('RGBA')
+    elif isinstance(image, list) and len(image) > 0:
         # If it returns a list, handle appropriately
-        result_item = bg_result[0]
+        result_item = image[0]
         if isinstance(result_item, dict):
             if 'image' in result_item:
                 nobackground = result_item['image'].convert('RGBA')
