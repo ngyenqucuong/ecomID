@@ -532,7 +532,7 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
         pose_image, 
     )
     x,y,width, height = bbox
-    crop_pose_image = pose_image.crop(bbox)
+    crop_pose_image = pose_image.crop((x, y, x + width, y + height))
     pose_info = pred_info(crop_pose_image)
     face_info = pred_info(face_image)
     mask_img = prepareMask(crop_pose_image, pose_info, width, height)
