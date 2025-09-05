@@ -203,7 +203,7 @@ def initialize_pipelines():
 
         # sess_options = onnxruntime.SessionOptions()
         # rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
-        
+        segmenter = HeadSegmentation()
         upsampler = set_realesrgan()
 
     except Exception as e:
