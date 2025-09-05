@@ -90,7 +90,7 @@ class HeadSegmentation:
         downloaded_path = hf_hub_download(repo_id=repo_id, filename=filename, local_dir='./')
         return downloaded_path
     def extract_head(self, image_input):
-        """Extract head (hair + face-skin) from a PIL Image, returning RGBA PIL Image."""
+        """Extract head (hair or face-skin based on highest confidence) from a PIL Image, returning RGBA PIL Image."""
         if not isinstance(image_input, PIL.Image.Image):
             raise ValueError("Input must be a PIL Image object")
         
@@ -105,23 +105,34 @@ class HeadSegmentation:
             
             # Run segmentation
             segmentation_result = self.segmenter.segment(mp_image)
-            category_mask = segmentation_result.category_mask
-            if category_mask is None:
-                raise ValueError("Segmentation failed: No category mask returned")
-            
-            # Extract category mask
-            mask = category_mask.numpy_view()
+            if not segmentation_result.confidence_masks:
+                raise ValueError("Segmentation failed: No confidence masks returned")
             
             # Categories based on selfie_multiclass_256x256: 1=hair, 3=face-skin
             head_categories = [1, 3]
-            binary_mask = np.zeros_like(mask, dtype=np.uint8)
-            for cat in head_categories:
-                binary_mask[mask == cat] = 255
+            
+            # Get confidence masks for head categories
+            max_confidence = 0
+            best_category = None
+            for idx in head_categories:
+                confidence_mask = segmentation_result.confidence_masks[idx].numpy_view()
+                mean_confidence = np.mean(confidence_mask)
+                if mean_confidence > max_confidence:
+                    max_confidence = mean_confidence
+                    best_category = idx
+            
+            if best_category is None:
+                raise ValueError("No valid head category found")
+            
+            # Create binary mask for the most confident category
+            category_mask = segmentation_result.category_mask.numpy_view()
+            binary_mask = np.zeros_like(category_mask, dtype=np.uint8)
+            binary_mask[category_mask == best_category] = 255
             
             # Resize mask if needed
             if binary_mask.shape != image_rgb.shape[:2]:
                 binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
-                                    interpolation=cv2.INTER_NEAREST)
+                                      interpolation=cv2.INTER_NEAREST)
                         
             extracted_image_rgb = image_rgb.copy()
             extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
@@ -133,23 +144,20 @@ class HeadSegmentation:
             
             extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
 
-
             # Calculate bounding box
             coords = np.where(binary_mask > 0)
             if len(coords[0]) > 0:
                 y_min, y_max = coords[0].min(), coords[0].max()
                 x_min, x_max = coords[1].min(), coords[1].max()
-                # PIL crop expects (left, top, right, bottom)
                 bbox = (x_min, y_min, x_max + 1, y_max + 1)
             else:
                 bbox = (0, 0, 0, 0)
 
-            # mask_pil = PIL.Image.fromarray(binary_mask, 'L').convert('RGB')
-
-            return extracted_pil,bbox
+            return extracted_pil, bbox
 
         except Exception as e:
             raise RuntimeError(f"Segmentation error: {str(e)}")
+
 
     def close(self):
         """Clean up segmenter resources."""
@@ -534,20 +542,20 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
             use_parse=True,
             device=device,
         )
-    head_image, bbox = segmenter.extract_head(
+    _, bbox = segmenter.extract_head(
         pose_image, 
     )
-    # x,y,width, height = bbox
-    # crop_pose_image = pose_image.crop((x, y, x + width, y + height))
-    # pose_info = pred_info(crop_pose_image)
-    # face_info = pred_info(face_image)
-    # mask_img = prepareMask(crop_pose_image, pose_info, width, height)
+    x,y,width, height = bbox
+    crop_pose_image = pose_image.crop((x, y, x + width, y + height))
+    pose_info = pred_info(crop_pose_image)
+    face_info = pred_info(face_image)
+    mask_img = prepareMask(crop_pose_image, pose_info, width, height)
 
-    # control_image = draw_kps(crop_pose_image, pose_info['kps'])    
-    # face_embed = np.array(face_info['embedding'])[None, ...]
-    # id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    # image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
-    #                          request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
+    control_image = draw_kps(crop_pose_image, pose_info['kps'])    
+    face_embed = np.array(face_info['embedding'])[None, ...]
+    id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
+                             request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     
     # Fix: Handle RMBG-2.0 output format for foreground extraction
     # new_head_img, new_bbox = segmenter.extract_head(
@@ -568,53 +576,52 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
 
     # # Convert back to PIL
     # nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
-    # nobackground = image.convert('RGBA')
-    # new_img = PIL.Image.new("RGBA", background.size)
-    # new_img.paste(nobackground, (x, y), nobackground)
+    nobackground = image.convert('RGBA')
+    new_img = PIL.Image.new("RGBA", background.size)
+    new_img.paste(nobackground, (x, y), nobackground)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    # result_image = PIL.Image.alpha_composite(background, new_img)
+    result_image = PIL.Image.alpha_composite(background, new_img)
 
-    # img = cv2.cvtColor(np.array(result_image.convert('RGB')), cv2.COLOR_RGB2BGR)
-    # face_helper.read_image(img)
-    # # get face landmarks for each face
-    # face_helper.get_face_landmarks_5(
-    #     only_center_face=True, resize=640, eye_dist_threshold=5
-    # )
+    img = cv2.cvtColor(np.array(result_image.convert('RGB')), cv2.COLOR_RGB2BGR)
+    face_helper.read_image(img)
+    # get face landmarks for each face
+    face_helper.get_face_landmarks_5(
+        only_center_face=True, resize=640, eye_dist_threshold=5
+    )
 
-    # face_helper.align_warp_face()
-    # for cropped_face in face_helper.cropped_faces:
-    #     # prepare data
-    #     cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
-    #     normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-    #     cropped_face_t = cropped_face_t.unsqueeze(0).to(device)
+    face_helper.align_warp_face()
+    for cropped_face in face_helper.cropped_faces:
+        # prepare data
+        cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
+        normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
+        cropped_face_t = cropped_face_t.unsqueeze(0).to(device)
 
-    #     try:
-    #         with torch.no_grad():
-    #             output = codeformer_net(
-    #                 cropped_face_t, w=0.5, adain=True
-    #             )[0]
-    #             restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
-    #         del output
-    #         torch.cuda.empty_cache()
-    #     except RuntimeError as error:
-    #         print(f"Failed inference for CodeFormer: {error}")
-    #         restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
+        try:
+            with torch.no_grad():
+                output = codeformer_net(
+                    cropped_face_t, w=0.5, adain=True
+                )[0]
+                restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
+            del output
+            torch.cuda.empty_cache()
+        except RuntimeError as error:
+            print(f"Failed inference for CodeFormer: {error}")
+            restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
 
-    #     restored_face = restored_face.astype("uint8")
-    #     face_helper.add_restored_face(restored_face, cropped_face)
-    # bg_img = upsampler.enhance(img, outscale=1)[0]
-    # face_helper.get_inverse_affine(None)
-    # restored_img = face_helper.paste_faces_to_input_image(
-    #     upsample_img=bg_img,
-    #     draw_box=False,
-    #     face_upsampler=upsampler,
-    # )
+        restored_face = restored_face.astype("uint8")
+        face_helper.add_restored_face(restored_face, cropped_face)
+    bg_img = upsampler.enhance(img, outscale=1)[0]
+    face_helper.get_inverse_affine(None)
+    restored_img = face_helper.paste_faces_to_input_image(
+        upsample_img=bg_img,
+        draw_box=False,
+        face_upsampler=upsampler,
+    )
     # restored_img = cv2.cvtColor(restored_img, cv2.COLOR_BGR2RGB)
     # PIL Image
     filepath = os.path.join(results_dir, filename)
-    head_image.save(filepath)
-    # imwrite(restored_img, str(filepath))
+    imwrite(restored_img, str(filepath))
     metadata = {
         "job_id": job_id,
         "type": "head_swap",
