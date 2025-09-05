@@ -122,8 +122,7 @@ class HeadSegmentation:
             if binary_mask.shape != image_rgb.shape[:2]:
                 binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
                                     interpolation=cv2.INTER_NEAREST)
-            
-            # Apply mask - keep in RGB
+                        
             extracted_image_rgb = image_rgb.copy()
             extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
             
@@ -134,20 +133,27 @@ class HeadSegmentation:
             
             extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
 
+
             # Calculate bounding box
             coords = np.where(binary_mask > 0)
             if len(coords[0]) > 0:
-                y_min, x_min = coords[0].min(), coords[1].min()
-                y_max, x_max = coords[0].max(), coords[1].max()
-                width, height = x_max - x_min + 1, y_max - y_min + 1
-                bbox = (x_min, y_min, width, height)
+                y_min, y_max = coords[0].min(), coords[0].max()
+                x_min, x_max = coords[1].min(), coords[1].max()
+                # PIL crop expects (left, top, right, bottom)
+                bbox = (x_min, y_min, x_max + 1, y_max + 1)
             else:
                 bbox = (0, 0, 0, 0)
 
-            return extracted_pil, bbox
+            # mask_pil = PIL.Image.fromarray(binary_mask, 'L').convert('RGB')
+
+            return extracted_pil,bbox
 
         except Exception as e:
             raise RuntimeError(f"Segmentation error: {str(e)}")
+
+    def close(self):
+        """Clean up segmenter resources."""
+        self.segmenter.close()
 
 
 def set_realesrgan():
@@ -174,7 +180,7 @@ def set_realesrgan():
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel,upsampler,segmenter
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,upsampler,segmenter
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
