@@ -125,6 +125,18 @@
                             </div>
                         </div>
                     </div>
+                    <div>
+                        <label class="block text-white font-medium mb-2">Background Image</label>
+                        <div class="upload-area p-6 text-center cursor-pointer" onclick="document.getElementById('backgroundImage').click()">
+                            <input type="file" id="backgroundImage" accept="image/*" class="hidden">
+                            <div id="backgroundImagePreview" class="hidden">
+                                <img id="backgroundImageImg" class="max-w-full h-32 object-cover rounded-lg mx-auto">
+                            </div>
+                            <div id="backgroundImagePlaceholder">
+                                <p class="text-white">📷 Click to upload background image</p>
+                            </div>
+                        </div>
+                    </div>
                     
                 </div>
 
@@ -232,7 +244,11 @@
         const posePreview = document.getElementById('poseImagePreview');
         const posePlaceholder = document.getElementById('poseImagePlaceholder');
         const poseImg = document.getElementById('poseImageImg');
-        
+        const backgroundInput = document.getElementById('backgroundImage');
+        const backgroundPreview = document.getElementById('backgroundImagePreview');
+        const backgroundPlaceholder = document.getElementById('backgroundImagePlaceholder');
+        const backgroundImg = document.getElementById('backgroundImageImg');
+
         baseInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
@@ -258,6 +274,18 @@
                 reader.readAsDataURL(file);
             }
         });
+        backgroundInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    backgroundImg.src = e.target.result;
+                    backgroundPreview.classList.remove('hidden');
+                    backgroundPlaceholder.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
         
         
         
@@ -267,6 +295,7 @@
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const baseImageFile = document.getElementById('baseImage').files[0];
             const poseImageFile = document.getElementById('poseImage').files[0];
+            const backgroundFile = document.getElementById('backgroundImage').files[0];
             const prompt = document.getElementById('Prompt').value;
             
             if (!baseImageFile) {
@@ -278,7 +307,12 @@
                 alert('Please upload a pose image');
                 return;
             }
-           
+
+            if (!backgroundFile) {
+                alert('Please upload a background image');
+                return;
+            }
+
             if (!prompt.trim()) {
                 alert('Please enter a prompt');
                 return;
@@ -287,6 +321,7 @@
             const formData = new FormData();
             formData.append('base_image', baseImageFile);
             formData.append('pose_image', poseImageFile);
+            formData.append('background_image', backgroundFile);
             formData.append('prompt', prompt);
             formData.append('ip_adapter_scale', document.getElementById('adapterScale').value);
             formData.append('strength', document.getElementById('Strength').value);

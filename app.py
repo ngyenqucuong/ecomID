@@ -23,7 +23,7 @@ import json
 from pydantic import BaseModel
 from typing import Optional
 import facer
-import onnxruntime
+# import onnxruntime
 from basicsr.utils import img2tensor, tensor2img,imwrite
 from torchvision.transforms.functional import normalize
 from basicsr.archs.rrdbnet_arch import RRDBNet
@@ -35,6 +35,7 @@ from torchvision import transforms
 from basicsr.utils.registry import ARCH_REGISTRY
 
 from facelib.utils.face_restoration_helper import FaceRestoreHelper
+import mediapipe as mp
 
 
 
@@ -49,11 +50,11 @@ insightface_app = None
 pipeline_swap = None
 face_parser = None
 bg_remove_pipe = None
-rmodel = None
+# rmodel = None
 executor = ThreadPoolExecutor(max_workers=1)
 
 upsampler = None
-
+segmenter = None
 codeformer_net = ARCH_REGISTRY.get("CodeFormer")(
     dim_embd=512,
     codebook_size=1024,
@@ -65,6 +66,88 @@ ckpt_path = "CodeFormer/weights/CodeFormer/codeformer.pth"
 checkpoint = torch.load(ckpt_path)["params_ema"]
 codeformer_net.load_state_dict(checkpoint)
 codeformer_net.eval()
+class HeadSegmentation:
+    def __init__(self, model_path='selfie_multiclass_256x256.tflite'):
+        """Initialize MediaPipe ImageSegmenter with multi-class selfie model."""
+        try:
+            if not os.path.exists(model_path):
+                print(f"Downloading model to {model_path}...")
+                model_path = self.download_model(model_path)
+            self.options = mp.tasks.vision.ImageSegmenterOptions(
+                base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
+                running_mode=mp.tasks.vision.RunningMode.IMAGE,
+                output_category_mask=True
+            )
+            self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(self.options)
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize segmenter: {str(e)}")
+    def download_model(self, model_path):
+        """Download the model from Hugging Face and verify its integrity."""
+        repo_id = "yolain/selfie_multiclass_256x256"
+        filename = "selfie_multiclass_256x256.tflite"
+
+        # Download the file
+        downloaded_path = hf_hub_download(repo_id=repo_id, filename=filename, local_dir='./')
+        return downloaded_path
+    def extract_head(self, image_input):
+        """Extract head (hair + face-skin) from a PIL Image, returning RGBA PIL Image."""
+        if not isinstance(image_input, PIL.Image.Image):
+            raise ValueError("Input must be a PIL Image object")
+        
+        try:
+            # Handle alpha channel in input
+            if image_input.mode == 'RGBA':
+                print("Warning: Input image has alpha channel, converting to RGB")
+            
+            # Keep everything in RGB for consistency
+            image_rgb = np.array(image_input.convert('RGB'))
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+            
+            # Run segmentation
+            segmentation_result = self.segmenter.segment(mp_image)
+            category_mask = segmentation_result.category_mask
+            if category_mask is None:
+                raise ValueError("Segmentation failed: No category mask returned")
+            
+            # Extract category mask
+            mask = category_mask.numpy_view()
+            
+            # Categories based on selfie_multiclass_256x256: 1=hair, 3=face-skin
+            head_categories = [1, 3]
+            binary_mask = np.zeros_like(mask, dtype=np.uint8)
+            for cat in head_categories:
+                binary_mask[mask == cat] = 255
+            
+            # Resize mask if needed
+            if binary_mask.shape != image_rgb.shape[:2]:
+                binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
+                                    interpolation=cv2.INTER_NEAREST)
+            
+            # Apply mask - keep in RGB
+            extracted_image_rgb = image_rgb.copy()
+            extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
+            
+            # Create RGBA image
+            extracted_image_rgba = np.zeros((*image_rgb.shape[:2], 4), dtype=np.uint8)
+            extracted_image_rgba[:, :, :3] = extracted_image_rgb  # RGB channels
+            extracted_image_rgba[:, :, 3] = binary_mask  # Alpha channel
+            
+            extracted_pil = PIL.Image.fromarray(extracted_image_rgba, 'RGBA')
+
+            # Calculate bounding box
+            coords = np.where(binary_mask > 0)
+            if len(coords[0]) > 0:
+                y_min, x_min = coords[0].min(), coords[1].min()
+                y_max, x_max = coords[0].max(), coords[1].max()
+                width, height = x_max - x_min + 1, y_max - y_min + 1
+                bbox = (x_min, y_min, width, height)
+            else:
+                bbox = (0, 0, 0, 0)
+
+            return extracted_pil, bbox
+
+        except Exception as e:
+            raise RuntimeError(f"Segmentation error: {str(e)}")
 
 
 def set_realesrgan():
@@ -91,7 +174,7 @@ def set_realesrgan():
 
 def initialize_pipelines():
     """Initialize the diffusion pipelines with InstantID and SDXL-Lightning - GPU optimized"""
-    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel,upsampler
+    global pipeline_swap, insightface_app, face_parser,bg_remove_pipe,rmodel,upsampler,segmenter
     
     try:
         insightface_app = FaceAnalysis(name='antelopev2', root='./',
@@ -118,8 +201,8 @@ def initialize_pipelines():
         )
         bg_remove_pipe.to('cuda')
 
-        sess_options = onnxruntime.SessionOptions()
-        rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
+        # sess_options = onnxruntime.SessionOptions()
+        # rmodel = onnxruntime.InferenceSession('lama_fp32.onnx', sess_options=sess_options)
         
         upsampler = set_realesrgan()
 
@@ -288,24 +371,24 @@ def pad_img_to_modulo(img, mod):
     )
 
 
-def prepare_img_and_mask(image, mask, device, pad_out_to_modulo=8, scale_factor=None):
-    out_image = get_image(image)
-    out_mask = get_image(mask)
+# def prepare_img_and_mask(image, mask, device, pad_out_to_modulo=8, scale_factor=None):
+#     out_image = get_image(image)
+#     out_mask = get_image(mask)
 
-    if scale_factor is not None:
-        out_image = scale_image(out_image, scale_factor)
-        out_mask = scale_image(out_mask, scale_factor, interpolation=cv2.INTER_NEAREST)
+#     if scale_factor is not None:
+#         out_image = scale_image(out_image, scale_factor)
+#         out_mask = scale_image(out_mask, scale_factor, interpolation=cv2.INTER_NEAREST)
 
-    if pad_out_to_modulo is not None and pad_out_to_modulo > 1:
-        out_image = pad_img_to_modulo(out_image, pad_out_to_modulo)
-        out_mask = pad_img_to_modulo(out_mask, pad_out_to_modulo)
+#     if pad_out_to_modulo is not None and pad_out_to_modulo > 1:
+#         out_image = pad_img_to_modulo(out_image, pad_out_to_modulo)
+#         out_mask = pad_img_to_modulo(out_mask, pad_out_to_modulo)
 
-    out_image = torch.from_numpy(out_image).unsqueeze(0).to(device)
-    out_mask = torch.from_numpy(out_mask).unsqueeze(0).to(device)
+#     out_image = torch.from_numpy(out_image).unsqueeze(0).to(device)
+#     out_mask = torch.from_numpy(out_mask).unsqueeze(0).to(device)
 
-    out_mask = (out_mask > 0) * 1
+#     out_mask = (out_mask > 0) * 1
 
-    return out_image, out_mask
+#     return out_image, out_mask
 
 transform_image = transforms.Compose(
     [
@@ -315,27 +398,27 @@ transform_image = transforms.Compose(
     ]
 )
 
-def predict(imagex, size):
-    # Fix: Handle RMBG-2.0 output format
-    input_images = transform_image(imagex).unsqueeze(0).to("cuda")
-    with torch.no_grad():
-        preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
-    pred = preds[0].squeeze()
-    pred_pil = transforms.ToPILImage()(pred)
-    mask_ = pred_pil.resize(size).convert('L')
+# def predict(imagex, size):
+#     # Fix: Handle RMBG-2.0 output format
+#     input_images = transform_image(imagex).unsqueeze(0).to("cuda")
+#     with torch.no_grad():
+#         preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
+#     pred = preds[0].squeeze()
+#     pred_pil = transforms.ToPILImage()(pred)
+#     mask_ = pred_pil.resize(size).convert('L')
 
-    image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask_.resize((512, 512)), 'cpu')
-    # Run the model
+#     image, mask = prepare_img_and_mask(imagex.resize((512, 512)), mask_.resize((512, 512)), 'cpu')
+#     # Run the model
     
-    outputs = rmodel.run(None, {'image': image.numpy().astype(np.float32), 'mask': mask.numpy().astype(np.float32)})
+#     outputs = rmodel.run(None, {'image': image.numpy().astype(np.float32), 'mask': mask.numpy().astype(np.float32)})
 
-    output = outputs[0][0]
-    # Postprocess the outputs
-    output = output.transpose(1, 2, 0)
-    output = output.astype(np.uint8)
-    output = PIL.Image.fromarray(output)
-    output = output.resize(size)
-    return output.convert('RGBA')
+#     output = outputs[0][0]
+#     # Postprocess the outputs
+#     output = output.transpose(1, 2, 0)
+#     output = output.astype(np.uint8)
+#     output = PIL.Image.fromarray(output)
+#     output = output.resize(size)
+#     return output.convert('RGBA')
 
 
 def pred_face_mask(img, face_info):
@@ -434,7 +517,7 @@ def create_soft_composite(background, foreground, edge_feather=5):
     
     return result
 
-async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.Image.Image, request: Img2ImgRequest):    
+async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.Image.Image, background: PIL.Image.Image, request: Img2ImgRequest):    
     # from bbox crop pose_image
     face_helper = FaceRestoreHelper(
             1,
@@ -445,34 +528,28 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
             use_parse=True,
             device=device,
         )
-   
-    width, height = pose_image.size
-    background = predict(pose_image, (width, height))
-
-    pose_info = pred_info(pose_image)
+    _, bbox = segmenter.extract_head(
+        pose_image, 
+    )
+    x,y,width, height = bbox
+    crop_pose_image = pose_image.crop(bbox)
+    pose_info = pred_info(crop_pose_image)
     face_info = pred_info(face_image)
-    mask_img = prepareMask(pose_image, pose_info, width, height)
+    mask_img = prepareMask(crop_pose_image, pose_info, width, height)
 
-    control_image = draw_kps(pose_image, pose_info['kps'])
-    width, height = pose_image.size
-    
+    control_image = draw_kps(crop_pose_image, pose_info['kps'])    
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     
     # Fix: Handle RMBG-2.0 output format for foreground extraction
-    image_size = image.size
-    input_images = transform_image(image).unsqueeze(0).to("cuda")
-    # Prediction
+    new_head_img, new_bbox = segmenter.extract_head(
+        pose_image, 
+    )
+    _,_,height1, width1 = new_bbox
     big_lena = cv2.resize(np.array(image), (width, height), interpolation=cv2.INTER_LANCZOS4)
-    with torch.no_grad():
-        preds = bg_remove_pipe(input_images)[-1].sigmoid().cpu()
-    pred = preds[0].squeeze()
-    pred_pil = transforms.ToPILImage()(pred)
-    mask = pred_pil.resize(image_size)
-    image.putalpha(mask)
-    im  = np.array(image)
+    im  = np.array(new_head_img)
     (height1, width1) = im.shape[:2]
     alpha_mask = im[:,:,3]
     # Apply Gaussian blur to soften edges
@@ -487,7 +564,7 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
     nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
     
     new_img = PIL.Image.new("RGBA", (width, height))
-    new_img.paste(nobackground, (0, 0), nobackground)
+    new_img.paste(nobackground, (x, y), nobackground)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     result_image = PIL.Image.alpha_composite(background, new_img)
@@ -613,6 +690,7 @@ async def health_check():
 async def img2img(
     base_image: UploadFile = File(...),
     pose_image: UploadFile = File(...),
+    background: UploadFile = File(...),
     prompt: str = Form(""),
     negative_prompt: str = Form("flaws in the eyes, flaws in the face, flaws, lowres, non-HDRi, low quality, worst quality"),
     strength: float = Form(0.9),
@@ -636,7 +714,7 @@ async def img2img(
         # Load images
         base_img = PIL.Image.open(io.BytesIO(await base_image.read())).convert('RGB')
         pose_img = PIL.Image.open(io.BytesIO(await pose_image.read())).convert('RGB')
-
+        background = PIL.Image.open(io.BytesIO(await background.read())).convert('RGB')
         request = Img2ImgRequest(
             num_inference_steps=num_inference_steps,
             prompt=prompt,
@@ -650,7 +728,7 @@ async def img2img(
         # Start background task
         loop = asyncio.get_event_loop()
         loop.run_in_executor(executor, lambda: asyncio.run(
-            gen_img2img(job_id, base_img, pose_img, request)
+            gen_img2img(job_id, base_img, pose_img,background, request)
         ))
         
         return {"job_id": job_id, "status": "pending"}
