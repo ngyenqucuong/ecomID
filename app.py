@@ -714,7 +714,7 @@ async def img2img(
         # Load images
         base_img = PIL.Image.open(io.BytesIO(await base_image.read())).convert('RGB')
         pose_img = PIL.Image.open(io.BytesIO(await pose_image.read())).convert('RGB')
-        background = PIL.Image.open(io.BytesIO(await background.read())).convert('RGB')
+        background = PIL.Image.open(io.BytesIO(await background.read())).convert('RGBA')
         request = Img2ImgRequest(
             num_inference_steps=num_inference_steps,
             prompt=prompt,
