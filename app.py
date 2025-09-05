@@ -534,20 +534,20 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
             use_parse=True,
             device=device,
         )
-    _, bbox = segmenter.extract_head(
+    head_image, bbox = segmenter.extract_head(
         pose_image, 
     )
-    x,y,width, height = bbox
-    crop_pose_image = pose_image.crop((x, y, x + width, y + height))
-    pose_info = pred_info(crop_pose_image)
-    face_info = pred_info(face_image)
-    mask_img = prepareMask(crop_pose_image, pose_info, width, height)
+    # x,y,width, height = bbox
+    # crop_pose_image = pose_image.crop((x, y, x + width, y + height))
+    # pose_info = pred_info(crop_pose_image)
+    # face_info = pred_info(face_image)
+    # mask_img = prepareMask(crop_pose_image, pose_info, width, height)
 
-    control_image = draw_kps(crop_pose_image, pose_info['kps'])    
-    face_embed = np.array(face_info['embedding'])[None, ...]
-    id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
-                             request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
+    # control_image = draw_kps(crop_pose_image, pose_info['kps'])    
+    # face_embed = np.array(face_info['embedding'])[None, ...]
+    # id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
+    # image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
+    #                          request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     
     # Fix: Handle RMBG-2.0 output format for foreground extraction
     # new_head_img, new_bbox = segmenter.extract_head(
@@ -568,52 +568,53 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
 
     # # Convert back to PIL
     # nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
-    nobackground = image.convert('RGBA')
-    new_img = PIL.Image.new("RGBA", background.size)
-    new_img.paste(nobackground, (x, y), nobackground)
+    # nobackground = image.convert('RGBA')
+    # new_img = PIL.Image.new("RGBA", background.size)
+    # new_img.paste(nobackground, (x, y), nobackground)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
-    result_image = PIL.Image.alpha_composite(background, new_img)
+    # result_image = PIL.Image.alpha_composite(background, new_img)
 
-    img = cv2.cvtColor(np.array(result_image.convert('RGB')), cv2.COLOR_RGB2BGR)
-    face_helper.read_image(img)
-    # get face landmarks for each face
-    face_helper.get_face_landmarks_5(
-        only_center_face=True, resize=640, eye_dist_threshold=5
-    )
+    # img = cv2.cvtColor(np.array(result_image.convert('RGB')), cv2.COLOR_RGB2BGR)
+    # face_helper.read_image(img)
+    # # get face landmarks for each face
+    # face_helper.get_face_landmarks_5(
+    #     only_center_face=True, resize=640, eye_dist_threshold=5
+    # )
 
-    face_helper.align_warp_face()
-    for cropped_face in face_helper.cropped_faces:
-        # prepare data
-        cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
-        normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-        cropped_face_t = cropped_face_t.unsqueeze(0).to(device)
+    # face_helper.align_warp_face()
+    # for cropped_face in face_helper.cropped_faces:
+    #     # prepare data
+    #     cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
+    #     normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
+    #     cropped_face_t = cropped_face_t.unsqueeze(0).to(device)
 
-        try:
-            with torch.no_grad():
-                output = codeformer_net(
-                    cropped_face_t, w=0.5, adain=True
-                )[0]
-                restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
-            del output
-            torch.cuda.empty_cache()
-        except RuntimeError as error:
-            print(f"Failed inference for CodeFormer: {error}")
-            restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
+    #     try:
+    #         with torch.no_grad():
+    #             output = codeformer_net(
+    #                 cropped_face_t, w=0.5, adain=True
+    #             )[0]
+    #             restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
+    #         del output
+    #         torch.cuda.empty_cache()
+    #     except RuntimeError as error:
+    #         print(f"Failed inference for CodeFormer: {error}")
+    #         restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
 
-        restored_face = restored_face.astype("uint8")
-        face_helper.add_restored_face(restored_face, cropped_face)
-    bg_img = upsampler.enhance(img, outscale=1)[0]
-    face_helper.get_inverse_affine(None)
-    restored_img = face_helper.paste_faces_to_input_image(
-        upsample_img=bg_img,
-        draw_box=False,
-        face_upsampler=upsampler,
-    )
+    #     restored_face = restored_face.astype("uint8")
+    #     face_helper.add_restored_face(restored_face, cropped_face)
+    # bg_img = upsampler.enhance(img, outscale=1)[0]
+    # face_helper.get_inverse_affine(None)
+    # restored_img = face_helper.paste_faces_to_input_image(
+    #     upsample_img=bg_img,
+    #     draw_box=False,
+    #     face_upsampler=upsampler,
+    # )
     # restored_img = cv2.cvtColor(restored_img, cv2.COLOR_BGR2RGB)
     # PIL Image
     filepath = os.path.join(results_dir, filename)
-    imwrite(restored_img, str(filepath))
+    head_image.save(filepath)
+    # imwrite(restored_img, str(filepath))
     metadata = {
         "job_id": job_id,
         "type": "head_swap",
