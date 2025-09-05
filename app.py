@@ -544,27 +544,27 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     
     # Fix: Handle RMBG-2.0 output format for foreground extraction
-    new_head_img, new_bbox = segmenter.extract_head(
-        pose_image, 
-    )
-    _,_,height1, width1 = new_bbox
-    big_lena = cv2.resize(np.array(image), (width, height), interpolation=cv2.INTER_LANCZOS4)
-    im  = np.array(new_head_img)
-    (height1, width1) = im.shape[:2]
-    alpha_mask = im[:,:,3]
-    # Apply Gaussian blur to soften edges
-    blurred_alpha = cv2.GaussianBlur(alpha_mask, ksize=None, sigmaX=7)
-    # Apply morphological operations to smooth the edges
-    factor = np.float32(1/255) * blurred_alpha
-    factor = factor[..., None]
-    color = cv2.resize(big_lena, (width1, height1), interpolation=cv2.INTER_LANCZOS4)
-    with_new_alpha = np.dstack([color, blurred_alpha])
+    # new_head_img, new_bbox = segmenter.extract_head(
+    #     pose_image, 
+    # )
+    # x1,y1,height1, width1 = new_bbox
+    # big_lena = cv2.resize(np.array(image), (width, height), interpolation=cv2.INTER_LANCZOS4)
+    # im  = np.array(new_head_img)
+    # (height1, width1) = im.shape[:2]
+    # alpha_mask = im[:,:,3]
+    # # Apply Gaussian blur to soften edges
+    # blurred_alpha = cv2.GaussianBlur(alpha_mask, ksize=None, sigmaX=7)
+    # # Apply morphological operations to smooth the edges
+    # factor = np.float32(1/255) * blurred_alpha
+    # factor = factor[..., None]
+    # color = cv2.resize(big_lena, (width1, height1), interpolation=cv2.INTER_LANCZOS4)
+    # with_new_alpha = np.dstack([color, blurred_alpha])
 
-    # Convert back to PIL
-    nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
+    # # Convert back to PIL
+    # nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
     
     new_img = PIL.Image.new("RGBA", background.size)
-    new_img.paste(nobackground, (x, y), nobackground)
+    new_img.paste(image, (x, y), image)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     result_image = PIL.Image.alpha_composite(background, new_img)
