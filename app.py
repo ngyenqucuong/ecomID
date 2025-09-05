@@ -563,7 +563,7 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
     # Convert back to PIL
     nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
     
-    new_img = PIL.Image.new("RGBA", (width, height))
+    new_img = PIL.Image.new("RGBA", background.size)
     new_img.paste(nobackground, (x, y), nobackground)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
