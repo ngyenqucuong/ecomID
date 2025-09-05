@@ -90,7 +90,7 @@ class HeadSegmentation:
         downloaded_path = hf_hub_download(repo_id=repo_id, filename=filename, local_dir='./')
         return downloaded_path
     def extract_head(self, image_input):
-        """Extract head (hair or face-skin based on highest confidence) from a PIL Image, returning RGBA PIL Image."""
+        """Extract head (hair + face-skin) from a PIL Image, returning RGBA PIL Image."""
         if not isinstance(image_input, PIL.Image.Image):
             raise ValueError("Input must be a PIL Image object")
         
@@ -105,35 +105,25 @@ class HeadSegmentation:
             
             # Run segmentation
             segmentation_result = self.segmenter.segment(mp_image)
-            if not segmentation_result.confidence_masks:
-                raise ValueError("Segmentation failed: No confidence masks returned")
+            category_mask = segmentation_result.category_mask
+            if category_mask is None:
+                raise ValueError("Segmentation failed: No category mask returned")
+            
+            # Extract category mask
+            mask = category_mask.numpy_view()
             
             # Categories based on selfie_multiclass_256x256: 1=hair, 3=face-skin
             head_categories = [1, 3]
-            
-            # Get confidence masks for head categories
-            max_confidence = 0
-            best_category = None
-            for idx in head_categories:
-                confidence_mask = segmentation_result.confidence_masks[idx].numpy_view()
-                mean_confidence = np.mean(confidence_mask)
-                if mean_confidence > max_confidence:
-                    max_confidence = mean_confidence
-                    best_category = idx
-            
-            if best_category is None:
-                raise ValueError("No valid head category found")
-            
-            # Create binary mask for the most confident category
-            category_mask = segmentation_result.category_mask.numpy_view()
-            binary_mask = np.zeros_like(category_mask, dtype=np.uint8)
-            binary_mask[category_mask == best_category] = 255
+            binary_mask = np.zeros_like(mask, dtype=np.uint8)
+            for cat in head_categories:
+                binary_mask[mask == cat] = 255
             
             # Resize mask if needed
             if binary_mask.shape != image_rgb.shape[:2]:
                 binary_mask = cv2.resize(binary_mask, (image_rgb.shape[1], image_rgb.shape[0]), 
-                                      interpolation=cv2.INTER_NEAREST)
-                        
+                                    interpolation=cv2.INTER_NEAREST)
+            
+            # Apply mask - keep in RGB
             extracted_image_rgb = image_rgb.copy()
             extracted_image_rgb[binary_mask == 0] = [0, 0, 0]  # Set non-head pixels to black
             
@@ -147,9 +137,10 @@ class HeadSegmentation:
             # Calculate bounding box
             coords = np.where(binary_mask > 0)
             if len(coords[0]) > 0:
-                y_min, y_max = coords[0].min(), coords[0].max()
-                x_min, x_max = coords[1].min(), coords[1].max()
-                bbox = (x_min, y_min, x_max + 1, y_max + 1)
+                y_min, x_min = coords[0].min(), coords[1].min()
+                y_max, x_max = coords[0].max(), coords[1].max()
+                width, height = x_max - x_min + 1, y_max - y_min + 1
+                bbox = (x_min, y_min, width, height)
             else:
                 bbox = (0, 0, 0, 0)
 
@@ -561,9 +552,9 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
     new_head_img, new_bbox = segmenter.extract_head(
         image, 
     )
-    x1,y1,height1, width1 = new_bbox
-    new_x = x + x1
-    new_y = y + y1
+    # x1,y1,height1, width1 = new_bbox
+    # new_x = x + x1
+    # new_y = y + y1
     # big_lena = cv2.resize(np.array(image), (width, height), interpolation=cv2.INTER_LANCZOS4)
     # im  = np.array(new_head_img)
     # # (height1, width1) = im.shape[:2]
@@ -580,7 +571,7 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
     # nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
     nobackground = new_head_img.convert('RGBA')
     new_img = PIL.Image.new("RGBA", background.size)
-    new_img.paste(nobackground, (new_x, new_y), nobackground)
+    new_img.paste(nobackground, (x, y), nobackground)
     filename = f"{job_id}_base.png"
     # create new PIL Image has size = top_layer_image
     result_image = PIL.Image.alpha_composite(background, new_img)
