@@ -321,7 +321,7 @@
             const formData = new FormData();
             formData.append('base_image', baseImageFile);
             formData.append('pose_image', poseImageFile);
-            formData.append('background_image', backgroundFile);
+            formData.append('background', backgroundFile);
             formData.append('prompt', prompt);
             formData.append('ip_adapter_scale', document.getElementById('adapterScale').value);
             formData.append('strength', document.getElementById('Strength').value);
