@@ -533,25 +533,26 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
             use_parse=True,
             device=device,
         )
-    _, bbox = segmenter.extract_head(
-        pose_image, 
-    )
-    x,y,width, height = bbox
-    crop_pose_image = pose_image.crop((x, y, x + width, y + height))
-    pose_info = pred_info(crop_pose_image)
+    # _, bbox = segmenter.extract_head(
+    #     pose_image, 
+    # )
+    # x,y,width, height = bbox
+    # crop_pose_image = pose_image.crop((x, y, x + width, y + height))
+    width, height = pose_image.size
+    pose_info = pred_info(pose_image)
     face_info = pred_info(face_image)
-    mask_img = prepareMask(crop_pose_image, pose_info, width, height)
+    mask_img = prepareMask(pose_image, pose_info, width, height)
 
-    control_image = draw_kps(crop_pose_image, pose_info['kps'])    
+    control_image = draw_kps(pose_image, pose_info['kps'])    
     face_embed = np.array(face_info['embedding'])[None, ...]
     id_embeddings = pipeline_swap.get_id_embedding(np.array(face_image))
-    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, crop_pose_image, mask_img,
+    image = pipeline_swap.inference(request.prompt, (1, height, width), control_image, face_embed, pose_image, mask_img,
                              request.negative_prompt, id_embeddings, request.ip_adapter_scale, request.guidance_scale, request.num_inference_steps, request.strength)[0]
     
     # Fix: Handle RMBG-2.0 output format for foreground extraction
-    new_head_img, new_bbox = segmenter.extract_head(
-        image, 
-    )
+    # new_head_img, new_bbox = segmenter.extract_head(
+    #     image, 
+    # )
     # x1,y1,height1, width1 = new_bbox
     # new_x = x + x1
     # new_y = y + y1
@@ -569,14 +570,14 @@ async def gen_img2img(job_id: str, face_image: PIL.Image.Image, pose_image: PIL.
 
     # # Convert back to PIL
     # nobackground = PIL.Image.fromarray(with_new_alpha, 'RGBA')    
-    nobackground = new_head_img.convert('RGBA')
-    new_img = PIL.Image.new("RGBA", background.size)
-    new_img.paste(nobackground, (x, y), nobackground)
+    # nobackground = new_head_img.convert('RGBA')
+    # new_img = PIL.Image.new("RGBA", background.size)
+    # new_img.paste(nobackground, (x, y), nobackground)
     filename = f"{job_id}_base.png"
-    # create new PIL Image has size = top_layer_image
-    result_image = PIL.Image.alpha_composite(background, new_img)
+    # # create new PIL Image has size = top_layer_image
+    # result_image = PIL.Image.alpha_composite(background, new_img)
 
-    img = cv2.cvtColor(np.array(result_image.convert('RGB')), cv2.COLOR_RGB2BGR)
+    img = cv2.cvtColor(np.array(image.convert('RGB')), cv2.COLOR_RGB2BGR)
     face_helper.read_image(img)
     # get face landmarks for each face
     face_helper.get_face_landmarks_5(
