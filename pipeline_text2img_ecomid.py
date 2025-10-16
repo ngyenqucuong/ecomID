@@ -4,7 +4,7 @@ import insightface
 import torch
 import torch.nn as nn
 from diffusers import DPMSolverMultistepScheduler, UNet2DConditionModel
-from pipeline_stable_diffusion_xl_inpaint_ecomid import StableDiffusionXLInpaintPulidPipeline
+from pipeline_stable_diffusion_xl_text2img_ecomid import StableDiffusionXLText2ImgPulidPipeline
 from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 from huggingface_hub import hf_hub_download, snapshot_download
@@ -24,26 +24,20 @@ else:
     from pulid.attention_processor import AttnProcessor, IDAttnProcessor
 
 
-class EcomIDPipeline:
+class EcomIDText2ImgPipeline:
     def __init__(self, args, insightface_app):
         super().__init__()
         self.device = args.device
 
         # Path to InstantID models
-        # face_adapter_path = f'../checkpoints/ip-adapter.bin'
-        # controlnet_path = f'../checkpoints/ControlNetModel'
-        # base_model_path = f'../checkpoints/realisticStockPhoto_v20.safetensors' 
-        #base_model_path = f'../checkpoints/sd_xl_base_1.0.safetensors'
-
         face_adapter_path = args.face_adapter_path
         controlnet_path = args.controlnet_path
         base_model_path = args.base_model_path
 
         controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
-        self.pipe = StableDiffusionXLInpaintPulidPipeline.from_single_file(
+        self.pipe = StableDiffusionXLText2ImgPulidPipeline.from_single_file(
             base_model_path, controlnet=controlnet, torch_dtype=torch.float16, variant="fp16"
         ).to(self.device)
-
 
         self.hack_unet_attn_layers(self.pipe.unet)
         self.pipe.watermark = None
@@ -54,7 +48,6 @@ class EcomIDPipeline:
         )
         self.pipe.load_ip_adapter_instantid(face_adapter_path)
         # ID adapters
-        #self.id_adapter = IDEncoder().to(self.device)
         self.id_adapter = IDFormer().to(self.device)
 
         # preprocessors
@@ -211,8 +204,7 @@ class EcomIDPipeline:
         # return id_embedding
         return torch.cat((uncond_id_embedding, id_embedding), dim=0)
 
-    def inference(self, prompt, size, control_image, face_embed, init_image, mask_image, prompt_n='',  image_embedding=None, id_scale=1.0, guidance_scale=1.2, steps=30 ,strength= 0.99
-    ):
+    def inference(self, prompt, size, control_image, face_embed, prompt_n='', image_embedding=None, id_scale=1.0, guidance_scale=5.0, steps=30):
         images = self.pipe(
             prompt=prompt,
             negative_prompt=prompt_n,
@@ -222,11 +214,8 @@ class EcomIDPipeline:
             image=[control_image],
             controlnet_conditioning_scale=[0.5],
             image_embeds=face_embed,
-            image_init=init_image,
-            mask_image=mask_image,
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
-            strength=strength,
             cross_attention_kwargs={'id_embedding': image_embedding, 'id_scale': id_scale},
         )[0]
 

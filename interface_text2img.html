@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcomID Text2Img Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        .input-section, .output-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+        }
+
+        .section-title {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-upload-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .file-upload-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .file-name {
+            display: inline-block;
+            margin-left: 10px;
+            color: #666;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .slider-container {
+            margin-top: 10px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        .slider-value {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.9em;
+        }
+
+        .generate-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .generate-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .preview-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .preview-image {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .status.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status.processing {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .status.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+
+        .download-btn {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 12px 24px;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 EcomID Text2Img Generator</h1>
+            <p>Generate new images from text prompts while maintaining face identity</p>
+        </div>
+
+        <div class="content">
+            <div class="input-section">
+                <h2 class="section-title">Input Settings</h2>
+
+                <div class="form-group">
+                    <label>Reference Face Image</label>
+                    <label class="file-upload-btn" for="refImage">
+                        Choose Image
+                    </label>
+                    <input type="file" id="refImage" accept="image/*" onchange="handleRefImageSelect(event)">
+                    <span class="file-name" id="refFileName">No file chosen</span>
+
+                    <div class="preview-container" id="refPreview" style="display: none;">
+                        <img id="refPreviewImg" class="preview-image" alt="Reference preview">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Prompt</label>
+                    <textarea id="prompt" placeholder="e.g., a person in a suit, professional photo, high quality"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Negative Prompt</label>
+                    <textarea id="negativePrompt">flaws in the eyes, flaws in the face, flaws, lowres, non-HDRi, low quality, worst quality</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Width</label>
+                    <input type="number" id="width" value="1024" min="512" max="2048" step="64">
+                </div>
+
+                <div class="form-group">
+                    <label>Height</label>
+                    <input type="number" id="height" value="1024" min="512" max="2048" step="64">
+                </div>
+
+                <div class="form-group">
+                    <label>Inference Steps</label>
+                    <div class="slider-container">
+                        <input type="range" id="steps" min="10" max="50" value="30" oninput="updateSliderValue('steps', this.value)">
+                        <span class="slider-value" id="stepsValue">30</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Guidance Scale</label>
+                    <div class="slider-container">
+                        <input type="range" id="guidanceScale" min="1" max="15" step="0.5" value="5.0" oninput="updateSliderValue('guidanceScale', this.value)">
+                        <span class="slider-value" id="guidanceScaleValue">5.0</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Identity Scale</label>
+                    <div class="slider-container">
+                        <input type="range" id="idScale" min="0" max="2" step="0.1" value="0.8" oninput="updateSliderValue('idScale', this.value)">
+                        <span class="slider-value" id="idScaleValue">0.8</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Seed (-1 for random)</label>
+                    <input type="number" id="seed" value="-1">
+                </div>
+
+                <button class="generate-btn" id="generateBtn" onclick="generateImage()">
+                    Generate Image
+                </button>
+            </div>
+
+            <div class="output-section">
+                <h2 class="section-title">Generated Result</h2>
+
+                <div id="statusContainer" style="display: none;">
+                    <div class="status" id="statusMessage"></div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="preview-container" id="resultPreview" style="display: none;">
+                    <img id="resultImage" class="preview-image" alt="Generated result">
+                    <br>
+                    <a id="downloadBtn" class="download-btn" download>Download Image</a>
+                    <div style="margin-top: 10px; color: #666;">
+                        Seed: <span id="resultSeed"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentJobId = null;
+        let statusCheckInterval = null;
+
+        function handleRefImageSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                document.getElementById('refFileName').textContent = file.name;
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const preview = document.getElementById('refPreview');
+                    const previewImg = document.getElementById('refPreviewImg');
+                    previewImg.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function updateSliderValue(name, value) {
+            document.getElementById(name + 'Value').textContent = value;
+        }
+
+        async function generateImage() {
+            const refImageInput = document.getElementById('refImage');
+            const prompt = document.getElementById('prompt').value;
+
+            if (!refImageInput.files.length) {
+                alert('Please select a reference face image');
+                return;
+            }
+
+            if (!prompt.trim()) {
+                alert('Please enter a prompt');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('ref_image', refImageInput.files[0]);
+            formData.append('prompt', prompt);
+            formData.append('negative_prompt', document.getElementById('negativePrompt').value);
+            formData.append('width', document.getElementById('width').value);
+            formData.append('height', document.getElementById('height').value);
+            formData.append('num_inference_steps', document.getElementById('steps').value);
+            formData.append('guidance_scale', document.getElementById('guidanceScale').value);
+            formData.append('id_scale', document.getElementById('idScale').value);
+            formData.append('seed', document.getElementById('seed').value);
+
+            document.getElementById('generateBtn').disabled = true;
+            showStatus('pending', 'Submitting request...');
+
+            try {
+                const response = await fetch('/text2img', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'failed') {
+                    showStatus('failed', 'Failed: ' + data.error_message);
+                    document.getElementById('generateBtn').disabled = false;
+                    return;
+                }
+
+                currentJobId = data.job_id;
+                startStatusCheck();
+
+            } catch (error) {
+                showStatus('failed', 'Error: ' + error.message);
+                document.getElementById('generateBtn').disabled = false;
+            }
+        }
+
+        function startStatusCheck() {
+            if (statusCheckInterval) {
+                clearInterval(statusCheckInterval);
+            }
+
+            statusCheckInterval = setInterval(checkJobStatus, 1000);
+        }
+
+        async function checkJobStatus() {
+            if (!currentJobId) return;
+
+            try {
+                const response = await fetch(`/job/${currentJobId}`);
+                const data = await response.json();
+
+                updateProgress(data.progress);
+
+                if (data.status === 'completed') {
+                    clearInterval(statusCheckInterval);
+                    showStatus('completed', 'Generation completed!');
+                    displayResult(data.result_url, data.seed);
+                    document.getElementById('generateBtn').disabled = false;
+                } else if (data.status === 'failed') {
+                    clearInterval(statusCheckInterval);
+                    showStatus('failed', 'Failed: ' + data.error_message);
+                    document.getElementById('generateBtn').disabled = false;
+                } else if (data.status === 'processing') {
+                    showStatus('processing', 'Generating image...');
+                } else {
+                    showStatus('pending', 'Waiting in queue...');
+                }
+
+            } catch (error) {
+                console.error('Error checking status:', error);
+            }
+        }
+
+        function showStatus(status, message) {
+            const container = document.getElementById('statusContainer');
+            const messageDiv = document.getElementById('statusMessage');
+
+            container.style.display = 'block';
+            messageDiv.className = 'status ' + status;
+            messageDiv.textContent = message;
+        }
+
+        function updateProgress(progress) {
+            const progressFill = document.getElementById('progressFill');
+            progressFill.style.width = (progress * 100) + '%';
+        }
+
+        function displayResult(resultUrl, seed) {
+            const preview = document.getElementById('resultPreview');
+            const resultImage = document.getElementById('resultImage');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const resultSeed = document.getElementById('resultSeed');
+
+            resultImage.src = resultUrl;
+            downloadBtn.href = resultUrl;
+            resultSeed.textContent = seed || 'N/A';
+            preview.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
